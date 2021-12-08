@@ -3,7 +3,7 @@
 ;;;
 ;;;     File:  "loader"
 ;;;   Module:  "model;core:mid-level:"
-;;;  version:  January 2021
+;;;  version:  November 2021
 
 ;; Broken out of sl/biology/terms.lisp 1/13/21.
 
@@ -35,11 +35,6 @@
 
 (define-category article-sentence :specializes document-part
   :realization (:noun "sentence"))
-
-(define-category article-figure :specializes document-part
-  :mixins (visual-representation)
-  :binds ((label two-part-label))
-  :realization (:noun "figure"))
 
 (define-category article-figure :specializes document-part
   :mixins (visual-representation)
@@ -80,6 +75,9 @@
 (define-category two-stars :specializes document-part
   :mixins (visual-representation)
   :realization (:word "**"))
+
+(define-category elipsis-dots :specializes visual-representation ;???
+  :realization (:word "..."))
 
  
 (def-cfr article-figure (article-figure two-part-label)

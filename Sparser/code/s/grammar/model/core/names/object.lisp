@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-2005,2013-2019  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-2005,2013-2021  David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2007 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "object"
 ;;;   Module:  "model;core:names:"
-;;;  version:  May 2019
+;;;  version:  September 2021
 
 ;; initiated 5/28/93 v2.3. Broke name word routines out to their own file 4/20/95. 
 ;; 0.1 (5/2) added an explicit name-creator to hack "and".   5/12 remodularized
@@ -25,6 +25,8 @@
 
 (in-package :sparser)
 
+;; (trace-pnf)
+
 ;;;-----------------------------------------------
 ;;; common super-class for things that have names
 ;;;-----------------------------------------------
@@ -37,8 +39,16 @@
   :instantiates :self
   :specializes endurant
   :binds ((name . name))
-  :index (:permanent :key name)) ;; instances field is now a table
+  :index (:permanent :apply :key name)) ;; instances field is now a table
 
+(define-category name-component
+  :instantiates nil
+  :specializes name
+  :documentation "Used for parts of names ('el', 'Ms.', 'junior')
+    that don't stand by themselves and don't refer. They can frequently
+    be separated from the rest of the name with it remaining recognizable")
+
+;;--- find/make
 
 (defun find/named-object-with-name (name)
   (let* ((table (cat-instances (category-named 'named-object)))
@@ -81,7 +91,7 @@
 
 (defun convert-to-canonical-name-form (raw-name)
   "Because they have different sources, a referent of an edge
- that denotes a name migh be a real type of name, or it might
+ that denotes a name might be a real type of name, or it might
  be one of the constituents of a name such as a name word or more.
  This code tracks those cases and takes them all to
  an uncategorized-name object. ///Might want another argument
@@ -190,23 +200,12 @@
   :specializes name
   :binds ((name/s sequence))
   :index (:permanent :special-case))
-           #| This category is not supposed to be instantiated 
-              by hand in a dossier, only from the Proper Name
-              facility.   Hence it's never going to be called or
-              checked for via Find-individual or the equivalent
-              and these routines do not have the structure that
-              those routines need.  |#
 
 
-
-;;--- the call from 'Examine'
-
-(defun make-uncategorized-name-from-items (items
-                                           &key and )
-  ;; Called from Categorize-and-form-name when there isn't enough
-  ;; internal evidence to make any judgement about the category.
-  ;; It returns the name object that it creates.
-
+(defun make-uncategorized-name-from-items (items &key and )
+  "Called from Categorize-and-form-name when there isn't enough
+   internal evidence to make any judgement about the category.
+   It returns the name object that it creates."
   (if and
     (make-collection-of-uncategorized-names items and)
     (or (find/uncategorized-name items)
@@ -243,6 +242,15 @@
                   :number 2
                   :type (category-named 'uncategorized-name))))
            collection )))))
+
+
+(defun collection-is-compound-name (collection)
+  (let ((type (value-of 'type collection)))
+    (if (eq 'named-object (cat-name type))
+      t
+      (else (when *debug-pnf*
+              (break "is ~a a collection of names?" collection))
+            nil))))
 
 
 (defun convert-collection-of-names-to-single-name (compound-name)
@@ -284,14 +292,19 @@
 ;;;---------------------------------------------
 
 (defun make/uncategorized-name (list-of-name-words)
+  "Make an unindexed uncategorized name, and bind its name/s
+   variable to a sequence make from the list of name words.
+   The link the individual name-word individuals directly
+   to the name. We don't index the name per se since it can
+   be recovered from the sequence or accessed from one of
+   its name words"
   (let ((sequence (define-sequence list-of-name-words))
         (obj (make-unindexed-individual category::uncategorized-name)))
-    ;; The name doesn't have to be indexed because we recover it from
-    ;; the sequence it's comprised of.  If/when we find out what sort of name
-    ;; it really is we would index that.
-    (setq obj (bind-dli-variable :name/s sequence obj))
+    (setq obj (bind-variable :name/s sequence obj))
     (tr :make-uncategorized-name obj sequence)
-    obj ))
+    (loop for nw in list-of-name-words
+       do (set-name-of nw obj))
+    obj))
 
     
 (defun index/uncategorized-name (name-obj name-word-sequence)
@@ -331,6 +344,8 @@
     (unindex/binding binding)))
 
 (defun name-based-on-sequence/uncategorized (seq)
+  "Called from functions that have the sequence and want any associated names:
+   names-based-on-sequence, find/uncategorized-name find/person-name"
   (let ((links-to-name-objects
          (all-bindings-such-that
           (indiv-bound-in seq)
@@ -371,6 +386,11 @@ with sequences we'd prefer that PNF handled directly.
   :index (:special-case))
 
 
+(defparameter *announce-new-spelled-names* nil
+  "Useful to turn this on some times to see what's being turned up
+   since there may be more patterns we can be systematic about")
+
+
 (defun reify-spelled-name (pos-before pos-after)
   "Presently only called from reify-ns-name-and-make-edge when no specific
    pattern has been found for this set of tokens (and we're -not- in big-
@@ -378,12 +398,12 @@ with sequences we'd prefer that PNF handled directly.
    For any name we need a sequence of name-words. Spelled names will always
    have no spaces between the words so we use the polyword machinery to
    get words with the correct capitalization. 
-   There are some pathological cases that the no-space machinery
+      There are some pathological cases that the no-space machinery
    gets (e.g. 'Wise Men's/King') where a smarter ns handler would have
-   rejected the sequence deliberated, but instead we end up here. This
-   example involves treetop edge over 'Wise Men's' that was created by
+   rejected the sequence and deliberated, but instead we end up here.
+   This example involves treetop edge over 'Wise Men's' that was created by
    PNF and yields a polyword. This function operates at the word level
-   so it misses the polyword (or any other sort of mulit-word edge).
+   so it misses the polyword (or any other sort of multi-word edge).
    We look for evidence that a polyword is involved."
   (let* ((words (words-between pos-before pos-after))
          (string (extract-characters-between-positions pos-before pos-after)))
@@ -392,31 +412,43 @@ with sequences we'd prefer that PNF handled directly.
       ;; The catch is in collect-no-space-segment-into-word
       (throw :punt-on-nospace-without-resolution nil))
 
-    (let* ((pnames (actual-strings-for-list-of-words words string))
-           (name-words (loop for p in pnames
-                          collect (define-name-word/actual p))))
-      (push-debug `(,words ,string ,pnames ,name-words))
+    (cond
+      ((string-is-probably-partial-url string)
+       (probably-partial-url string))
+      ((eq #\# (aref string 0))
+       (probably-a-hashtag string))
+      (t
+        (let* ((pnames (actual-strings-for-list-of-words words string))
+               (name-words (loop for p in pnames
+                              collect (define-name-word/actual p))))
+          ;;(push-debug `(,words ,string ,pnames ,name-words))
+          (when *announce-new-spelled-names*
+            (format t "~&Spelled-name reifying ~s" string))
+    
+          (let ((sequence (define-sequence name-words))
+                (name (make-unindexed-individual category::spelled-name)))
+            (setq name (bind-variable :name/s sequence name category::spelled-name))
 
-      (let ((sequence (define-sequence name-words))
-            (name (make-unindexed-individual category::spelled-name)))
-        (setq name (bind-variable :name/s sequence name category::spelled-name))
-
-        ;; This part is taken from make/uncategorized-name
-        ;; Return value designed to feed edge creation in 
-        ;; reify-ns-name-and-make-edge
-        (let* ((polyword (resolve/make string))
-               (concatenated-name
-                (intern string *category-package*))
-               (category (find-or-make-category-object
-                          concatenated-name :referential))
-               (rule (define-cfr category `(,polyword)
-                       :form category::proper-name
-                       :referent name
-                       ;; If we include a :source we can assign it
-                       ;; to a particular grammar module, but default
-                       ;; is ok.
-                       :schema (get-schematic-word-rule :proper-noun))))
-          (values category rule name))))))
+            ;; This part is taken from make/uncategorized-name
+            ;; Return value designed to feed edge creation in 
+            ;; reify-ns-name-and-make-edge
+            (let* ((polyword (resolve/make string))
+                   (concatenated-name (intern string *category-package*))
+                   (category (find-or-make-category-object
+                              concatenated-name :referential))
+                   (proper? (capitalized-instance pos-before))
+                   (rule (define-cfr category `(,polyword)
+                           :form (if proper?
+                                   category::proper-name
+                                   category::common-noun)
+                           :referent name
+                           ;; If we include a :source we can assign it
+                           ;; to a particular grammar module, but default
+                           ;; is ok.
+                           :schema (if proper?
+                                     (get-schematic-word-rule :proper-noun)
+                                     (get-schematic-word-rule :common-noun)))))
+              (values category rule name))))))))
 
 
 (defun actual-strings-for-list-of-words (words string)
@@ -428,8 +460,7 @@ with sequences we'd prefer that PNF handled directly.
   (let ((start 0)
         (pnames nil))
     (dolist (word words)
-      (push (subseq string start (+ start (length (pname word))))
-            pnames)
+      (push (subseq string start (+ start (length (pname word)))) pnames)
       (setq start (+ start (length (pname word)))))
     (nreverse pnames)))
  

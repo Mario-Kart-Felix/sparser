@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER) -*-
-;;; copyright (c) 1992-1999,2010-2018 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-1999,2010-2021 David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2007-2009 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "logicals"
 ;;;   Module:  "init;loaders;"
-;;;  version:  August 2018
+;;;  version:  May 2021
 
 ;; 4/21/92 added new,  5/10 broke apart CA/HA,  7/18 promoted all the
 ;; directories under "names;" up to "core;",  7/23 added tools;time
@@ -161,6 +161,7 @@
 (def-logical-pathname "march;"       "psp;march;")
 (def-logical-pathname "threading;"   "psp;threading;")
 (def-logical-pathname "complete;"    "psp;complete;")
+(def-logical-pathname "spot;"        "psp;word-spotting;")
 (def-logical-pathname "referent;"    "psp;referent;")
 (def-logical-pathname "annotation;"  "psp;annotation;")
 (def-logical-pathname "kinds of edges;"    "psp;edges;")
@@ -289,8 +290,9 @@
 (def-logical-pathname "ern;"          "sl;ERN;")
 (def-logical-pathname "disease;"      "sl;disease;")
 (def-logical-pathname "bio;"          "sl;biology;")
-(def-logical-pathname "bio-not-loaded;"          "sl;biology-not-loaded;")
-(def-logical-pathname "score-stats;"          "sl;score-stats;")
+(def-logical-pathname "bio-not-loaded;"  "sl;biology-not-loaded;")
+(def-logical-pathname "score;"        "sl;score;")
+(def-logical-pathname "score-stats;"  "sl;score-stats;")
 (def-logical-pathname "hurricanes;"   "sl;hurricanes;")
 (def-logical-pathname "blocks;"       "sl;blocks-world;")
 (def-logical-pathname "biocuration;"  "sl;biocuration;")
@@ -300,6 +302,7 @@
 (def-logical-pathname "banking;"      "sl;banking;")
 (def-logical-pathname "isr;"          "sl;isr;")
 (def-logical-pathname "waypoints;"    "sl;waypoints;")
+(def-logical-pathname "motifs;"       "sl;motifs;")
 
 (def-logical-pathname "Who's News;"   "sl;Who's News;")
 (def-logical-pathname "acts;"         "Who's News;acts;")

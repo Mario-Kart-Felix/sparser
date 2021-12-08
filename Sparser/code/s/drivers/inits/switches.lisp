@@ -4,7 +4,7 @@
 ;;; 
 ;;;     File:  "switches"
 ;;;   Module:  "drivers;inits:"
-;;;  Version:  February 2021
+;;;  Version:  August 2021
 
 ;; 1.1 (2/6/92 v2.2) changed the allowed values for unknown-words
 ;;     (2/7) Added *switch-setting* and *track-salient-objects*
@@ -255,8 +255,13 @@
   (setq *constrain-pronouns-using-mentions* t
         *ignore-personal-pronouns* t)
   (setq *use-discourse-mentions* t
-        *interpret-in-context* t))
+        *interpret-in-context* t
+        *store-restriction-on-pronoun-edge* t
+        *try-incrementally-resolving-pronouns* nil))
 
+(defun use-inline-handler-for-pronouns ()
+  (setq *store-restriction-on-pronoun-edge* nil ; see condition-anaphor-edge
+        *try-incrementally-resolving-pronouns* t))
 
 ;;--- post-chunking extras
 
@@ -267,7 +272,6 @@
 (defun turn-off-experimental-settings ()
   (setq *do-adjunctive-attachments* nil
         *do-last-ditch-non-semantic-whacks* nil))
-
 
 
 ;;--- What do we do with a segment after we've delimited
@@ -342,7 +346,6 @@
         *sweep-for-conjunctions* t
         *sweep-for-parentheses* t
         *chunk-sentence-into-phrases* t
-        *big-mechanism-ngs* t
         *parse-chunk-interior-online* t
         *parse-chunked-treetop-forest* t
         *sweep-sentence-treetops* t
@@ -454,12 +457,17 @@
   (top-edges-setting)
   (standard-extras)
   (include-comlex)
+  (setq *incrementally-save-comlex-categories* nil)
   
   ;; cherry-pick, vary from sublangage-settings
   (use-unknown-words)
   (setq *make-edges-over-new-digit-sequences* t)
   (what-to-do-with-unknown-words :capitalization-digits-&-morphology/or-primed)
   (designate-sentence-container :complex)
+  (designate-paragraph-container :biology)
+  (designate-section-container :biology)
+  (designate-article-container :biology)
+
   (setq *treat-single-Capitalized-words-as-names* t)
   
   ;; (grok-setting)
@@ -480,6 +488,8 @@
   (use-post-analysis-mentions-for-pronouns)
 
   (period-hook-on) ;; make sure we notice periods
+
+  (setq *compute-items-contexts* nil) ;; we don't to this is R3 reports
 
   (turn-off-segment-analysis-settings) ;; except for ...
   (setq *new-segment-coverage* :trivial) ;; vs. :full or :none
@@ -580,11 +590,12 @@
   (top-edges-setting)
   (standard-extras)
   (include-comlex)
+  (setq *incrementally-save-comlex-categories* t)
+  (experimental-settings)
   
   ;;(parsing-protocol-for-documents) which is ...
   (what-to-do-at-the-forest-level :new-forest-protocol)
-  (setq *kind-of-chart-processing-to-do* :successive-sweeps)
-  
+  (setq *kind-of-chart-processing-to-do* :successive-sweeps)  
   ;; in scan-terminals-loop
   (setq *sweep-for-word-level-fsas* t
         *sweep-for-terminal-edges* t )
@@ -594,22 +605,16 @@
         *sweep-for-early-information* t ;; questions
         *sweep-for-conjunctions* t
         *sweep-for-parentheses* t
-
         *ignore-literal-edges* nil ;; default, but need when switching
-        
         *chunk-sentence-into-phrases* t
-        ;;  *big-mechanism-ngs* t  /// check details
         *parse-chunk-interior-online* t
-        
         *sweep-sentence-treetops* t
-
         *parse-chunked-treetop-forest* t
         *sweep-sentence-treetops* t
-        *island-driving* t
-        )
+        *island-driving* t)
   (setq *edges-from-referent-categories* nil
         *allow-pure-syntax-rules* t
-        *check-forms* t) ;; controls validity check in multiply-edges
+        *check-forms* nil) ;; turn off validity check in multiply-edges
   (whack-a-rule t)
 
   (use-unknown-words)
@@ -623,7 +628,9 @@
   (setq *edge-for-unknown-words* t)
   ;; It's T by default. Used by assign-morph-brackets-to-unknown-word
   ;; to control whether we make categories for the words
-  ;; it gets a POS analysis for. 
+  ;; it gets a POS analysis for.
+
+  (use-inline-handler-for-pronouns)
   
   ;; R3 sweeper doesn't introduce boundaries so no point
   ;; in expecting them
@@ -636,6 +643,8 @@
   
   (setq *use-subtypes* t) ;; e.g. plurals, refining types of individuals
 
+  (setq *compute-items-contexts* t) ;; enable context analysis over motifs
+
   ;; variation on segment-analysis-settings
   (setq *after-action-on-segments* 'sdm/analyze-segment)
   (setq *do-strong-domain-modeling* t)
@@ -647,8 +656,10 @@
 
   (designate-sentence-container :complex)
   (designate-paragraph-container :texture)
+  (designate-section-container :texture)
+  (designate-article-container :texture)
   
-  (setq *recognize-sections-within-articles* t) ;; otherwise no sentences
+  (setq *recognize-sections-within-articles* t) ;; otherwise won't be sentences
  
   (setq *switch-setting* :neo-fire))
 
@@ -882,7 +893,6 @@
 
 (defun cfg-setting ()
   (setq *ignore-parentheses* t)
-  (setq *timezones-off* t)
   (setq *cfg-flag* t))
 
 

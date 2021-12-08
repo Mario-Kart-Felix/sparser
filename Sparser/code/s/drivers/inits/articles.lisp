@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1991-1996,2013,2016  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1991-1996,2013,2016-2021  David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2009 BBNT Solutions LLC. All Rights Reserved
 ;;; 
 ;;;     File:  "articles"
 ;;;   Module:  "drivers;inits:"
-;;;  Version:  December 2016
+;;;  Version:  June 2021
 
 ;; 1.1  (3/28/91 v1.8.1)  Added Clear-individuals, and improved the
 ;;      conditionalization according to the load-time switches
@@ -51,6 +51,9 @@
 ;;;--------
 
 (defun per-article-initializations ()
+  "Invoked from analysis-core before any analysis starts provided
+   that the *initialize-with-each-unit-of-analysis* flag is up
+"
   (declare (special *saved-toplevel-parsing-protocol*))
 
   (when *saved-toplevel-parsing-protocol*
@@ -58,11 +61,9 @@
     (resume-old-parsing-protocol))
 
   (clear-debug) ;; zero's the stack
-  (clear-context-variables)
 
   (when *load-the-grammar*
-    (when *context-variables*
-      (initialize-context-variables))
+ 
     (clear-traversal-state)
     (clear-stack-of-pending-left-openers)
 
@@ -78,7 +79,11 @@
     (when *recognize-sections-within-articles*
       (initialize-document-element-resources)
       (begin-new-article))
-
+    
+    (when *context-variables* ; read by article initialization
+      (clear-context-variables)
+      (initialize-context-variables))
+   
     (when *include-model-facilities*
       (unless *accumulate-content-across-documents*
         ;; See description on this variable, but note
@@ -89,7 +94,7 @@
         (clean-out-history-and-temp-objects))))
 
     ;; These flags are grammar modules
-#|    (when *paragraph-detection*
+#|  (when *paragraph-detection*
       (initialize-paragraph-state))
     (when *recognize-sections-within-articles*
       (initialize-section-state)))  |#
@@ -113,6 +118,7 @@ set in. This initialization manages them.|#
   (declare (special *localization-interesting-heads-in-sentence*))
   (when *localization-interesting-heads-in-sentence*
     (reset-localization-interesting-heads-in-sentence))
+  (initialize-note-edge-cache)
   (clear-traversal-state))
 
 
@@ -121,11 +127,13 @@ set in. This initialization manages them.|#
 ;;;--------------------------------------
 
 (defun clean-out-history-and-temp-objects ()
-  ;; the reap is ordered before the initialization
+  ;; the temp. individuals reap is ordered before the initialization
   ;; because it uses the discourse history to tell it
   ;; what to reap
   (reclaim-temporary-individuals)
   (zero-bound-in-fields)
+  (clear-note-tables)
+  (clear-spotting-tables)
   (initialize-discourse-history))
 
 

@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-2005,2010-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-2005,2010-2021 David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2008-2009 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "morphology"
 ;;;   Module:  "grammar;rules:tree-families:"
-;;;  version:  December 2020
+;;;  version:  September 2021
 
 ;; initiated 8/31/92 v2.3, fleshing out verb rules 10/12
 ;; 0.1 (11/2) fixed how lists of rules formed with synonyms
@@ -127,7 +127,10 @@
       (t (make-rules-for-head pos (getf (rdata-head-words rdata) pos) category referent))))
   
   (:method ((pos (eql t)) (word cons) category referent &rest special-cases)
-    "Handle a generic head-word specification list, e.g., (:verb ...)"
+    "Handle a generic head-word specification list, e.g., (:verb ...).
+     At this stage the 'word' is a list. We pull off the pos keyword and head word
+     (car & cadr), package the remainder of the list (cddr) as 'special-cases'
+     for the next method to handle"
     (check-type (car word) keyword)
     (check-type (cadr word) (or list word polyword lambda-variable))
     (check-irregular-word-markers (cddr word))
@@ -182,7 +185,7 @@
 
 
 (deftype irregular-keyword ()
-  '(member :plural :prep
+  '(member :plural :prep :phrase
            :nominalization :past-tense
            :present-participle :past-participle
            :third-singular :third-plural))
@@ -303,7 +306,7 @@
 
 (defun define-main-verb (verb &key
                          (category (find-or-make-category verb))
-                         (referent (category-named 'event)) ;; should be eventuality
+                         (referent (category-named 'perdurant))
                          (infinitive        ;; "to give"
                           (error "Must supply at least the infinitive form."))
                          tensed/singular    ;; "he gives"
@@ -311,7 +314,7 @@
                          past-tense         ;; "they gave"
                          past-participle    ;; "they have given"
                          present-participle ;; "they are giving"
-                         prep
+                         prep  phrase
                          nominalization)
   "Standalone entry point developed in the early 1990s. Can be very lightweight
 because the referent can be trivial. Provides overrides to make-verb-rules."
@@ -319,6 +322,7 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
                                   category referent
                                   :nominalization nominalization
                                   :prep prep
+                                  :phrase phrase
                                   :present-participle present-participle
                                   :past-participle past-participle
                                   :past-tense past-tense
@@ -329,7 +333,7 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
 (defmethod make-rules-for-head ((pos (eql :verb)) word category referent
                                 &key
                                   nominalization
-                                  prep
+                                  prep  phrase
                                   past-tense past-participle present-participle
                                   third-singular third-plural
                                   (s-form third-singular)
@@ -430,7 +434,10 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
             (rule-macro past-participle category::verb+ed)) 
 
           (when prep
-            (setup-bound-preposition prep category referent))
+            (setup-bound-preposition word prep category))
+
+          (when phrase
+            (setup-phrasal-verb word phrase category))
 
           (nreverse rules)))))))
 
@@ -438,6 +445,29 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
 ;;;--------------------
 ;;; stripping suffixes
 ;;;--------------------
+
+;; These are too hard to write rules for so that they don't strip,
+;; or that are quite irregular or too short to get a multi-case
+;; suffix from
+(defparameter *do-not-stem*
+  '(
+    "alias"
+    "atlas"
+    "beings"
+    "booking"
+    "christmas"
+    "corps"
+    "mars"
+    "mumps"
+    "perhaps"
+    "seasoning"
+    "standings"
+    "string"
+    "tens"
+    "thanks"
+    "underling"
+    ))
+
 
 (defun word-stem (word)
   (get-tag :stem word))
@@ -453,11 +483,12 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
            ;; we got a very long (incorrect) word which caused an break
            ;; this is a patch to avoid that break
            s)
+          ((member s *do-not-stem* :test #'string-equal)
+           s)
           ((< (length s) 3) ;; "fed" -- maybe < 4 ?
            s)
           (t (let ((word (resolve/make s)))
                (stem-form word)))))
-
   (:method ((word word))
     ;; Redundant with stem-form-of-verb but adds more cases and
     ;; does a Comlex check. Stores the stem once it finds it.
@@ -483,10 +514,9 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
             ;; without morphology information we can't stem
             word)))))
 
-
 (defun stem-form-of-verb (word)
-  ;; Called from introduce-morph-brackets-from-unknown-word, which (8/8/10) is
-  ;; very conservative about what it tries to stem
+  ;; Called from older code: mine-as-a-verb in dmp;mine-terms,
+  ;; and the dialog in interface/grammar/defining-verbs.
   (let ((morphology (word-morphology word)))
     (if morphology ;;/// mistakenly stems "this",
       ;; and "species" => "specy", "during" => "dur"
@@ -589,23 +619,35 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
   (eql #\s (last-letter s)))
 
 
-;;--- Verbs ("s", "ed", "ing")
+
 
 (defgeneric form-stem/strip-s (word)
   ;; the word ends in 's'
   (:method ((w word))
     (let ((stem (form-stem/strip-s (word-pname w))))
+
       (resolve/make stem)))
   (:method ((pname string))
     (let* ((length (length pname))
            (stem-pname (subseq pname 0 (1- length)))
-           (char-before (elt pname (- length 2))))
+           (char-before (elt pname (- length 2))))          
       (cond
-        ((and (eql char-before #\e)
-              (eql #\i (elt pname (- length 3))))
-         ;; check for 'i'
-           (concatenate 'string (subseq pname 0 (- length 3)) "y"))
-        (t
+        #+ignore((< (length stem-pname) 3) ;/// collect these
+         pname)
+        ((ends-in? pname "ies")
+         (concatenate 'string (subseq pname 0 (- length 3)) "y"))
+        ((or (ends-in? pname "es") ; "roaches"
+             (ends-in? pname "us") ; "cactus" "status" "alumnus"
+             (ends-in? pname "is")) ; "oasis" "crisis"
+         (subseq pname 0 (- length 2)))
+        ((or (ends-in? pname "ass") ; "amass" "pass"
+             (ends-in? pname "ess") ; "access" "dress" "address" "impress"
+             (ends-in? pname "iss") ; "dismiss" "miss"
+             (ends-in? pname "ness") ; "witness"
+             (ends-in? pname "oss") ; "toss"
+             (ends-in? pname "uss")) ; "fuss"
+         pname)
+        (t ;; (break "Fell through pname: ~s  stem: ~s" pname stem-pname)
          stem-pname)))))
 
 ;(form-stem/strip-s (define-word "flies"))
@@ -629,7 +671,11 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
           (cond
             ((doubled-consonants? char-minus-1 char-minus-2)
              ;; "..cced" -> "..c"
-             (subseq pname 0 (- length 3)))
+             (cond ((gethash (subseq pname 0 (- length 3)) *primed-words*)
+                    (subseq pname 0 (- length 3)))
+                   ((gethash (subseq pname 0 (- length 2)) *primed-words*)
+                    (subseq pname 0 (- length 2)))
+                   (t pname))) ;/// or break?
 
             ((and (consonant? char-minus-1)
                   (not (eql char-minus-1 #\x))
@@ -656,13 +702,16 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
              ;;    e.g. "riddled with grief"
              (subseq pname 0 (- length 1)))
 
-            (t
+            ((ends-in? pname "eed") ; "bleed" "speed"
+             pname)
+
+            (t ;;(break "~s fell through" pname)
              (subseq pname 0 (- length 2)))))))))
 #|
  (test-stemmer "coiled") -> "coil"
  (form-stem/strip-ed "coiled") -> "coil"
 
-//// (form-stem/strip-ed "called") --> "cal"
+//// (form-stem/strip-ed "called") --> "call"
 
  (form-stem/strip-ed "expected") ;; default
  (form-stem/strip-ed "named")    ;; "..vced" -> "..vce"
@@ -684,7 +733,7 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
   (:method ((pname string))
     (let ((length (length pname)))
       (if (< length 6)
-        (then ;; what's an example where we'd stem it?
+        (then ; "bring" "being"
           pname)
         (let ((stem-pname (subseq pname 0 (- length 3))) ;; remove "ing"
               (char-before (elt pname (- length 4))))
@@ -932,14 +981,16 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
            (double nil))
       ;; http://dictionary.cambridge.org/us/grammar/british-grammar/spelling
 
-      ;; list the reasong not to double and by default
+      ;; list the reason not to double and by default
       ;; we'll double a final consonant. 
       (cond
         ((eql #\e last-letter)
          (setq pname (subseq pname 0 (1- (length pname))))
          ;; "ie" => "ying
          (when (eql 2d-to-last #\i)
-           (setq pname (string-append pname "y"))))
+           (setq pname (string-append
+                        (subseq pname 0 (1- (length pname))) ;; need to remove the "i" too
+                        "y"))))
         
         ((eql #\w last-letter)) ;; "snow"
         ((eql #\x last-letter)) ;; "tax"
@@ -950,7 +1001,7 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
            ((= 1 number-of-vowels)
             (cond
               ((vowel? 2d-to-last) "put" "run" "get"
-               ;; applies to ading "-er", "-en" "-ish"
+               ;; applies to adding "-er", "-en" "-ish"
                (setq double t))))
            
            ((and (vowel? 2d-to-last) (vowel? 3d-to-last))
@@ -992,15 +1043,6 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
 
 
 ;;--- comparative/superlative
-
-(defparameter *inhibit-constructing-comparatives* nil
-  "Used when the caller knows more about how to construct 
-   the comparatives than the default routines. See define-attribute")
-
-(defmacro without-comparatives (&body body)
-  `(let ((*inhibit-constructing-comparatives* t))
-     (declare (special *inhibit-constructing-comparatives*))
-     ,@body))
 
 (defun make-comparative/superlative (word &key (suffix "er") (y-suffix "ier"))
   (declare (type word word)
@@ -1060,21 +1102,23 @@ because the referent can be trivial. Provides overrides to make-verb-rules."
 
 (defun make-cn-plural-rules (word category referent &key plural)
   (if plural ;; a marked irregular
-    (make-irreg-mword word :noun :plural plural)
+    (unless (eq plural :none)
+      (make-irreg-mword word :noun :plural plural))
     (setq plural (etypecase word
                    (polyword (plural-version/pw word))
                    (word (plural-version word)))))
-  (loop for plural in (ensure-list plural)
-        as plural-word = (etypecase plural
-                           ((or word polyword) plural)
-                           (string (resolve/make plural)))
-        collect plural-word into inflections
-        collect (make-cn-plural-rule plural-word category referent) into rules
-        finally
-          (record-inflections inflections word :noun)
-          (loop for i in inflections ;; may not be right - needs review
-                do (record-lemma i word :noun))
-       (return rules)))
+  (unless (eq plural :none)
+    (loop for plural in (ensure-list plural)
+       as plural-word = (etypecase plural
+                          ((or word polyword) plural)
+                          (string (resolve/make plural)))
+       collect plural-word into inflections
+       collect (make-cn-plural-rule plural-word category referent) into rules
+       finally
+         (record-inflections inflections word :noun)
+         (loop for i in inflections ;; may not be right - needs review
+            do (record-lemma i word :noun))
+         (return rules))))
 
 (defun make-cn-plural-rule (plural category referent)
   (assign-brackets-as-a-common-noun plural)

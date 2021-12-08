@@ -3,7 +3,7 @@
 ;;;
 ;;;     File:  "object"
 ;;;   Module:  "model;core:people:"
-;;;  version:  January 2021
+;;;  version:  September 2021
 
 ;; initiated 6/8/93 v2.3
 ;; 0.1 (1/7/94) redesigned not to pre-index
@@ -32,10 +32,12 @@
   :mixins (has-uid)
   :binds ((name . person-name)
           (age . age)
+          (gender . gender)
           (position . (:or title position-at-co))
           (nationality . country)
           (origin top)) ;; simplistic
-  :index (:permanent :key name)
+  :index (:permanent :apply :key name)
+  :lemma (:common-noun "person")
   :realization
      ((:from origin
        :of nationality)
@@ -82,6 +84,8 @@
 (define-category family-member
   :instantiates person
   :specializes person-type
+  :binds ((relative . person))
+  :realization (:of relative)
   :documentation "Its worth separating out these cases
     since they take possessives ('my mother is turning 92')
     and have nice inter-relationships if we want to model them.")
@@ -96,8 +100,7 @@
   :index (:key role)  ;; should these be permanent?
   :binds ((role . title))
   :documentation "Virtually any job title can be used to refer
- to people who hold that position, 
-")
+ to people who hold that position, ")
 
 (define-category role-based-person
   :instantiates person
@@ -120,7 +123,7 @@
  the role at some time, should have person-name objects in their
  name file.")
 
-;; instances in dossiers/
+;; instances in dossiers/person-roles.lisp
 (define-type-instance-constructor role-based-person)
 
 ;;;------------
@@ -174,7 +177,7 @@
           (string
            ;;/// Any other characters to look for?
            (if (position #\space name-string)
-             (break-up-at name-string :delimeter-chars '(#\space))
+             (break-up-at name-string :delimeter-chars '(#\comma #\space))
              (list name-string)))
           (cons
            (if (every #'stringp name-string)
@@ -187,13 +190,16 @@
            (push-debug `(,name-string))
            (error "Unexpected type of person name specifier: ~a~%~a"
                   (type-of name-string) name-string)))))
-
     (setq string-elements
           (remove-if #'(lambda (s) (and (= 1 (length s))
                                         (eql (elt s 0) #\space)))
                      string-elements))
+    (setq string-elements ;; "Apple Computer, Inc."
+          (remove-if #'(lambda (s) (position #\comma s))
+                     string-elements))
+    
     (loop for string in string-elements
-                 collect (resolve-string-to-word/make string))))
+       collect (resolve-string-to-word/make string))))
                            
 
 (defun name-words-for-words (list-of-words)

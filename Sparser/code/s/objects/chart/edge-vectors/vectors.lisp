@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-;;; copyright (c) 1990,1991  Content Technologies Inc.
-;;; copyright (c) 1992-1994,2013,2019 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-1994,2013,2019-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "vectors"
-;;;   Module:  "objects;edge vectors:"
-;;;  Version:  November 2019
+;;;   Module:  "objects/chart/edge vectors/"
+;;;  Version:  August 2021
 
 ;; 2.0 (11/26/92 v2.3) bumped on general principles anticipating changes.
 ;; 2.1 (4/6/93) Put in switch for kcons vs. vector versions
@@ -54,11 +54,11 @@
         (setf (ev-edge-vector vector)
               (setq array (make-edge-vector-array)))))
 
+    ;;/// there's something wrong with the format expression in
+    ;; this break but I can't see it yet (ddm 7/31/21)
     (when (>= count *maximum-number-of-edges-in-an-edge-vector*)
-      (break "Reached the maximum number of edges (~a) allowed on~
-            ~%a pre-constructed edge-vector.
-            ~%    This usually indicates a runaway circular set of rules~
-            ~%in the grammar.~
+      (break "Reached the maximum number of edges (~a) allowed on ~
+            ~%an edge-vector.~
             ~%    next edge to add: ~A~
             ~%      at edge-vector: ~A"
              *maximum-number-of-edges-in-an-edge-vector*
@@ -107,7 +107,7 @@
 
 (defun remove-edge-from-chart (edge)
   ;; Called by form-rule-completion and by
-  ;; ensure-edge-consistent-with-chunk
+  ;; filter-chunk-compatible-edges-from-ev in the chunker
   (let ((edges (ev-edges (edge-starts-at edge)))
         (starting-vector (edge-starts-at edge))
         (ending-vector (edge-ends-at edge)))
@@ -122,40 +122,46 @@
              ~%edge-vector based on kcons lists."))))
 
 (defun remove-edge-from-vector-ev (ev edge)
-  "Remove 'edge' from the the edge vector ev, adjusting
+  "Remove 'edge' from the the edge vector 'ev', adjusting
    the other edges in its array and its meta data accordingly."
   (let ((array (ev-edge-vector ev))
         (count (ev-number-of-edges ev))
         (top-node (ev-top-node ev)))
     (cond
-     ((eq edge (aref array (1- count))) ;; it the top
-      (setf (aref array (decf (ev-number-of-edges ev)))
-            nil)
+     ((eq edge (aref array (1- count))) ;; it is the last one added
+      (setf (aref array (decf (ev-number-of-edges ev))) nil)
       (reset-ev-top-node ev))
-     ;;/// what if it's the top edge of multiple initial edges?
      (t
       (reset-ev-edges ;; it's in the middle somewhere
-       ev (loop for e in (ev-edges ev)
+       ev (loop for e in (all-edges-on ev)
              unless (eq e edge) collect e))))
     edge ))
 
 (defun reset-ev-top-node (ev)
-  "Helper -- When the dust has settled after the ev has been edited
-   this uses the count and actual vector to do the right thing."
-  (let ((count (ev-number-of-edges ev)))
-    (cond ((= count 0) ;; doesn't try ot re-compute :multiple-initial=edges
-           (setf (ev-top-node ev) nil))
-          ((= count 1)
-           (setf (ev-top-node ev) (aref (ev-edge-vector ev) (1- count))))
-          (t (setf (ev-top-node ev) :multiple-initial-edges)))))
+  "Fixes the top-node field after remove-edge-from-vector-ev has taken away
+   the edge it was told to remove. The ev-number-of-edges of the ev
+   is already correct, and the edge has been removed from the array."
+  (let ((count (ev-number-of-edges ev))
+        (edge-list (all-edges-on ev)))
+    (cond
+      ((= count 1)
+       (setf (ev-top-node ev) (car edge-list)))
+      ((every #'one-word-long? edge-list)
+       (setf (ev-top-node ev) :multiple-initial-edges))
+      (t
+       (setf (ev-top-node ev) (aref (ev-edge-vector ev) (1- count)))))
+    ev))
+
 
 (defun reset-ev-edges (ev edge-list) ;; moved from psp/chunker.lisp
-  ;; Prime use is the chunker, and it knows its dealing with
-  ;; multiple initial edges, so it tacitly knows they're all
-  ;; over the same single word.
-  ;;/// check case when we get here from form-rule-completion
+  "Called from remove-edge-from-vector-ev when the edge to be
+   removed is not the last one that was added.
+   The edge-list contains all of the edges that should still be on
+   the vector after the removal. This code first clears the array
+   (sets the cells to nil) and then repopulates it from the
+   edge-list."
   (when ev
-    (if (null (cdr edge-list))
+    #+ignore(if (null (cdr edge-list))
       (setf (ev-top-node ev) (car edge-list))
       (setf (ev-top-node ev) :multiple-initial-edges))
     (loop for i from 0 to (- (length (ev-edge-vector ev)) 1)
@@ -165,8 +171,7 @@
        as e in edge-list
        do (setf (aref (ev-edge-vector ev) i)
                 e))
-    (setf (ev-number-of-edges ev)
-          (length edge-list))
+    (setf (ev-number-of-edges ev) (length edge-list))
     (reset-ev-top-node ev)))
 
 
@@ -177,7 +182,7 @@
    edges on the vector and return a list of edges that omits
    any that are literals."
   ;; Called by check-out-possible-conjunction and
-  ;; look-for-da-patterns though could review what they're
+  ;; look-for-da-patterns though should review what they're
   ;; up to
   (let ((count (ev-number-of-edges ev))
         (vector (ev-edge-vector ev))

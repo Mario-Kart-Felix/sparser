@@ -1,14 +1,32 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2014-2018 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2014-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;      File:   "time-methods"
 ;;;    Module:   "grammar/model/core/time/"
-;;;   Version:   April 2018
+;;;   Version:   June 2021
 
 ;; created 6/1/14 to load preposition and sequencer methods after the dossiers
 ;; that load them. 
 
 (in-package :sparser)
+
+;; (trace-methods)
+
+
+;; "a month" -> amount-of-time
+(def-k-method apply-determiner ((determiner category::a) (unit category::time-unit))
+  "This is implements interpreting the determiner 'a' as though it were
+   a number - the same as 'one'"
+  ;; runs in determiner-noun
+  (declare (special *subcat-test*))
+  (if *subcat-test*
+    t
+    (else
+      (tr :a+time-unit determiner unit)  
+      (let ((n (find-number 1)))
+        (revise-parent-edge :category (category-named 'amount-of-time))
+        (make-amount-of-time n unit)))))
+  
 
 
 ;; "before today"
@@ -25,8 +43,8 @@
       :modifier sequencer))
 
 
-
-(def-k-method modifier+noun ((next category::next-sequence)
+;; "next year"
+(def-k-method modifier+noun ((next category::next)
                              (unit category::time-unit))
   "For phrases like '(the) next day' or 'next month'. Time units
    aren't naturally members of a sequence in the way that specific
@@ -34,8 +52,6 @@
    time unit against the current time and get a sequence from
    there."
   (tr :next+month unit)
-
-
   (let ((c (etypecase unit
              (category unit)
              (individual (itype-of unit)))))
@@ -45,3 +61,10 @@
       
       ;; otherwise we make a relative time
       (make-a-relative-time next unit))))
+
+
+;; "the evening of January 5"
+(def-k-method compose-of ((phase category::phase-of-day)
+                          (time category::time))
+  (tr :phase+time phase time)
+  (make-particular-time-of-day phase time))

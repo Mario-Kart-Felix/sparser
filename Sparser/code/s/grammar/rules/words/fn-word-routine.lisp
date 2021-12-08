@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-1995,2011-2019 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-1995,2011-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;      File:   "fn word routine"
 ;;;    Module:   "grammar;rules:words:"
-;;;   Version:   December 2020
+;;;   Version:   November 2021
 
 ;; 0.1 (12/17/92 v2.3) redid the routine so it was caps insensitive and handled
 ;;      bracketing.
@@ -41,8 +41,12 @@
                                ((:form name-of-form-category)))
   "Defines the word, notes its grammatical form, and assigns
    its brackets. Does not create any rules for it."
+
+
   (let ((word (etypecase string
-                ((or word polyword) string)
+                ((or word polyword)
+                 (update-file-location string)
+                 string)
                 (string (resolve-string-to-word/make string))))
         (form (if name-of-form-category
                 (resolve-form-category name-of-form-category)
@@ -111,6 +115,7 @@
 
 (defun define-function-term (string form 
                              &key  brackets super-category
+                                   ((:use category-name-to-use))
                                    rule-label discriminator
                                    tree-families subcat-info
                                    word-variable mixins
@@ -136,17 +141,18 @@
      The 'form' argument names the category that will be the form on the
    unary rule this creates. It also determines the choice of brackets,
    mirroring the choices in the setup code used with Comlex.
-     The 'tree-famil'y argument should be a list of full ETF names; see example
+     The 'tree-family' argument should be a list of full ETF names; see example
    in define-adverb. 
-     'Rule-labe'l has the same impact as it does in the definition of an
+     'rule-label' has the same impact as it does in the definition of an
    ordinary category. It determines the label on the generated rules, which
    will otherwise be the generated category.
-     'Word-variable' is the name of the variable to use to associate
+     'word-variable' is the name of the variable to use to associate
    the word with the category in its bindings field. It defaults to
-   'name', but that default assumes that variable is in fact defined
-   on the supercategory. This pattern does not use the 'lemma' to hold
-   the word that refers to the category since these 'categories' are
-   single-purpose and only instantiated once. 
+   name, but that default assumes the variable is in fact defined
+   on the supercategory. 
+      This pattern does not use the 'lemma' to hold the word that refers
+   to the category since these 'categories' are single-purpose and
+   only instantiated once. 
      For getting subcategorization information from Comlex the :subcat-info
    argument dictates which POS entry to use. Legal values are noun, verb, 
    adjective, and adverb."
@@ -178,11 +184,14 @@
 
   (let ((word (if (typep string 'word)
                 (prog1 string
-                  (assign-brackets-to-word string brackets))
-                (define-function-word string 
-                  :brackets brackets ;; this does bracket assignment
-                  :form form))))
-    (let* ((base-name (name-to-use-for-category string))
+                  (assign-brackets-to-word string brackets)
+                  (update-file-location string))
+                (define-function-word string ; calls define-word/expr
+                    :brackets brackets
+                    :form form))))
+    
+    (let* ((base-name (or category-name-to-use
+                          (name-to-use-for-category string)))
            (category-name 
             (if discriminator
               (intern (string-append base-name "-" discriminator)
@@ -207,68 +216,77 @@
 
       (let* ((effective-rule-label (or rule-label category-name))
              (category ;; for the function word
-              (define-category/expr category-name  ;; e.g. 'only'
-                  `(:specializes ,super-category
-                    :instantiates nil
-                    :mixins ,mixins
-                    :binds ,binds
-                    :rule-label ,effective-rule-label
-                    :bindings (,word-variable ,word)
-                    :realization ,realization
-                    :documentation ,documentation))))
-
+              ;;(or (category-named category-name)
+                  (define-category/expr category-name  ;; e.g. 'only'
+                      `(:specializes ,super-category
+                        :instantiates nil
+                        :mixins ,mixins
+                        :binds ,binds
+                        :rule-label ,effective-rule-label
+                        :bindings (,word-variable ,word)
+                        :realization ,realization
+                        :documentation ,documentation)))) ;;)
+        
         (let* ((word-key (intern (symbol-name word-variable)
                                  (find-package :keyword)))
                (instance-form `(define-individual ',category-name
                                    ,word-key ,word))
                i)
           (setq i (eval instance-form))
+          
+          (when rule-label
+            ;; The :around method in make-rules-for-head where the rule-label
+            ;; would be used instead of the category doesn't appear to work,
+            ;; so the rule that is created by the call to define-individual
+            ;; will have the wrong label. The most expedient thing appears to be
+            ;; to just delete it (which will remove it from the word's rule-set)
+            (loop for rule in (find-unary-rules word)
+               do (delete/cfr rule)))
 
           (let ((rule ;; Create the single-term rule that rewrites the word
                  (define-cfr (or rule-label
                                  category)
-                             (list word)
+                     (list word)
                    :form (category-named form)
                    :referent i)))
+            (add-rule rule category)
+
+            (when tree-families
+              ;; Now knit the category into the correct set of form rules
+              (unless (or *reduced-form-rules* rule-label)
+                ;; But if there's a specified rule-label, e.g. specifying
+                ;; 'sequencer' for "next" instead of using the category
+                ;; for "next" that we just created, then some other routine
+                ;; e.g., sequencer/determiner is responsible for making those 
+                ;; form rules and we'd get a clash if we did them here. 
+                (apply-function-term-etf category tree-families)))
             
-          (add-rule rule category)
+            (let ((*head-rules-already-created* t))
+              (declare (special *head-rules-already-created*))
+              ;; Make realization-data object for the category
+              (setup-word-data word (rationalize-pos form) category)
+              ;; make the lexicalize phrase
+              ;;///// FIXME the second argument (:common-noun) has to be
+              ;;  based on the form parameter in a mapping something
+              ;;  like the one for brackets at the top. Alternatively
+              ;;  we pass in the form as it, and use the table in
+              ;;  make-resource-for-sparser-word to the mapping
+              (make-corresponding-mumble-resource word :common-noun i))
 
-          (when tree-families
-            ;; Now knit the category into the correct set of form rules
-            (unless (or *reduced-form-rules* rule-label)
-              ;; But if there's a specified rule-label, e.g. specifying
-              ;; 'sequencer' for "next" instead of using the category
-              ;; for "next" that we just created, then some other routine
-              ;; e.g., sequencer/determiner is responsible for making those 
-              ;; form rules and we'd get a clash if we did them here. 
-              (apply-function-term-etf category tree-families)))
-          
-          (let ((*head-rules-already-created* t))
-            (declare (special *head-rules-already-created*))
-            ;; Make realization-data object for the category
-            (setup-word-data word (rationalize-pos form) category)
-            ;; make the lexicalize phrase
-            ;;///// FIXME the second argument (:common-noun) has to be
-            ;;  based on the form parameter in a mapping something
-            ;;  like the one for brackets at the top. Alternatively
-            ;;  we pass in the form as it, and use the table in
-            ;;  make-resource-for-sparser-word to the mapping
-            (make-corresponding-mumble-resource word :common-noun i))
-
-          ;; This isn't ready for prime time yet. The function it's
-          ;; calling was never finished. We could get much of the same
-          ;; effect by incorporating a tailored subcategorization mixin
-          #+ignore(when subcat-info
-            ;; Look up the Comlex subcategorization information for
-            ;; this word. If there is any, and if it is of the specified
-            ;; sort, add any rules that would apply.
-            ;; Adjectives are the model case
-            (add-specific-subcategorization-facts
-             category word subcat-info))
- 
-          (values category
-                  i
-                  rule)))))))
+            ;; This isn't ready for prime time yet. The function it's
+            ;; calling was never finished. We could get much of the same
+            ;; effect by incorporating a tailored subcategorization mixin
+            #+ignore(when subcat-info
+                      ;; Look up the Comlex subcategorization information for
+                      ;; this word. If there is any, and if it is of the specified
+                      ;; sort, add any rules that would apply.
+                      ;; Adjectives are the model case
+                      (add-specific-subcategorization-facts
+                       category word subcat-info))
+            
+            (values category
+                    i
+                    rule)))))))
 
 
 

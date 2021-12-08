@@ -67,10 +67,13 @@
 (define-country "Cambodia")
 (define-country "Cameroon")
 (define-country "Canada" :adjective "Canadian"
-                :provinces '("Alberta" "British Columbia" "Manitoba" "New Brunswick" "Newfoundland" "Newfoundland and Labrador"
-                             "Nova Scotia" "Ontario" "Prince Edward Island" "Quebec" "Québec" "Saskatchewan"
+                :provinces '("Alberta" "British Columbia" "Manitoba" "New Brunswick"
+                             "Newfoundland" "Labrador"
+                             "Nova Scotia" "Ontario" "Prince Edward Island"
+                             "Quebec" "Québec" "Saskatchewan"
                              "Northwest Territories" "Nunavut" "Yukon") ;; technically territories
-                :cities '("Ottawa" "Quebec City" "Québec City" "Vancouver" "Winnepeg"))
+                :cities '("Ottawa" "Quebec City" "Québec City" "Vancouver" "Winnepeg"
+                          "Calgary"))
 (define-country "Canary Islands") ;; linked to Spain
 (define-country "Cape Verde")
 (define-country "Central African Republic")
@@ -215,6 +218,7 @@
 (define-country "Poland")
 (define-country "Portugal" :adjective "Portuguese"
                 :cities '("Lisbon"))
+(define-country "Puerto Rico")
 (define-country "Qatar")
 (define-country "Romania")
 (define-country "Russia" :adjective "Russian"
@@ -262,7 +266,7 @@
 (define-country "Tonga")
 (define-country "Trinidad and Tobago")
 (define-country "Tunisia")
-(define-country "Turkey" :adjective "Turkish")
+(define-country "Turkey" :adjective "Turkish" :cities '("Istanbul"))
 (define-country "Turkmenistan")
 (define-country "Tuvalu")
 (define-country "Uganda" :adjective "Ugandan")
@@ -271,7 +275,8 @@
 (define-country "United States"
   :aliases '("US" "U.S." "U.S.A." "America" "United States of America")
   :adjective '("American")
-  :cities '("Washington, D.C." "New York"
+  :cities '("Washington, D.C."
+            "New York" "New York City"
             "San Francisco" "Miami" "Boston" "Sunnyvale" "Seattle" "Portland" "Newark"
             "Minneapolis" "Milwaukee" "Indianapolis" "Denver" "Chicago"
             "Charlottesville" "Atlanta"))

@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-1995,2014-2020  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-1995,2014-2021  David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "affix rules"
 ;;;   Module:  "grammar;rules:syntax:"
-;;;  Version:  December 2020
+;;;  Version:  June 2021
 
 ;; moved over from preterminals code 5/11/93, v2.3
 ;; 0.1 (3/28/94) changed the 'rule' on these edges from :known-affix to
@@ -38,10 +38,11 @@
     (declare (special *source-of-unknown-words-definition*))  
     (add-new-word-to-catalog word :default)
     (if *edge-for-unknown-words*
-        (unless
-            (resolve (concatenate 'string (pname word) "s"))
-          ;; Last-ditch attempt to avoid defining a typo of foreign language word which will conflict with an existing definition
-          ;;  example "studie" in some German papers which conflicts with "studies" and "study"
+        (unless (resolve (concatenate 'string (pname word) "s"))
+          ;; Last-ditch attempt to avoid defining a typo of foreign
+          ;;  language word which will conflict with an existing
+          ;;  definition example "studie" in some German papers which
+          ;;  conflicts with "studies" and "study"
           (setup-common-noun word))
         (assign-brackets-as-a-common-noun word))))
 
@@ -60,14 +61,16 @@
 
 ;; (trace-morphology)
 
-(defun assign-morph-brackets-to-unknown-word (word morph-keyword)
+(defun assign-morph-brackets-to-unknown-word (word morph-keyword
+                                              &optional comlex-entry)
   "Called from make-word/all-properties, which is itself called
    on the way back from the tokenizer."
   (declare (special *show-sentence-for-early-errors*))
   (tr :defining-unknown-word-from-morph word morph-keyword)
 
   (let ((*source-of-unknown-words-definition* :morphology)
-        (entry (gethash (pname word) *primed-words*)) ; Comlex
+        (entry (or comlex-entry
+                   (comlex-entry word)))
         (*unknown-word* word))
     (declare (special *source-of-unknown-words-definition* *unknown-word*))
 
@@ -121,7 +124,7 @@
               (tr :defining-lemma-as-given-morph lemma 'verb)
               (if *edge-for-unknown-words*
                 (or (when *block-verbification* (block-verbified-nouns lemma))
-                    (else (setup-verb lemma)
+                    (else (setup-verb lemma entry)
                           (sanity-check-word-formation word lemma :ed)))
                 (assign-brackets-as-a-main-verb lemma))))
 
@@ -130,7 +133,7 @@
               (tr :defining-lemma-as-given-morph lemma 'verb)
               (if *edge-for-unknown-words*
                 (or (when *block-verbification* (block-verbified-nouns lemma))
-                    (let ((category (setup-verb lemma)))
+                    (let ((category (setup-verb lemma entry)))
                       #+ignore(when already-exists?
                                 (reconcile-lemma-and-original category already-exists? :ing))
                       (sanity-check-word-formation word lemma :ing)))
@@ -160,13 +163,13 @@
               (if *edge-for-unknown-words*
                 (setup-adjective word)
                 (assign-brackets-to-adjective word)))
+             ;; The -er, -ier, and -est suffixes generate
+             ;; many false positives. 
              #+ignore(comparative
               (tr :defining-as-given-morph 'adjective)
               (if *edge-for-unknown-words*
                 (setup-comparative word)
                 (assign-brackets-to-adjective word)))
-             ;; The -er, -ier, and -est suffixes generate
-             ;; many false positives. 
              #+ignore(superlative
               (tr :defining-as-given-morph 'adjective)
               (if *edge-for-unknown-words*
@@ -175,7 +178,7 @@
              (v
               (tr :defining-as-given-morph 'verb)
               (if *edge-for-unknown-words*
-                (setup-verb word)
+                (setup-verb word entry)
                 (assign-brackets-as-a-main-verb word))))))))))
 
 
@@ -291,6 +294,11 @@
    flag is up, it calls the appropriate 'setup' routine to have a category
    constructed to go with the word."
   (declare (special *edge-for-unknown-words*))
+
+  (when (eq form-category category::ends-in-s)
+    ;; They punted. Somebody needs to decide plural noun vs. verb
+    ;; /// default w/o thinking
+    (setq form-category category::common-noun))
   
   (let* ((edge (make-edge-over-unknown-word
                 word pos-before pos-after

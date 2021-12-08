@@ -92,8 +92,12 @@ syntactic properties of three types.
 
 (define-conjunction "instead of"  :form 'conjunction)
 (define-conjunction "as well as"  :form 'conjunction)
-(define-conjunction "but"  :form 'conjunction) ;; not a subordihnate conjunction
-  ;; see "ERK Nuclear Translocation Is Dimerization-independent but Controlled by the Rate of Phosphorylation."        
+
+(define-conjunction "but"  :form 'conjunction)
+;; making it a subordinate conjunction would create an event-relation
+;; between the two clauses. However the semantic force of 'but'
+;; is to make a statement about its complement that only makes sense
+;; in the current situation
 
 
 
@@ -106,9 +110,16 @@ syntactic properties of three types.
 
 (mapcar #'define-conjunction
         '("neither" ;; "nor" handle neither/nor by da rules?
-          "if" "then" 
+          "if"  
           ))
 
+
+
+;;;------ subordinate conjunctions that also function as adverbs
+
+(define-simultaneous-adverb-subord-conj "then")
+(define-simultaneous-adverb-subord-conj "therefore") ;; "we therefore tested whether ..."
+(define-simultaneous-adverb-subord-conj "thus") ;; "we thus tested whether ..."
 
 
 ;;;------ subordinating conjunctions
@@ -169,11 +180,11 @@ syntactic properties of three types.
           "such that"
 	  ;; "surprisingly" use the adverb
           "than" ;; much better than we could have expected
-          "therefore"
+          ;; "therefore" --------- now with adverb
           "though"
           "till" ;; short for 'until' takes range of complements
           "thereby"
-          "thus"  
+          ;; "thus" --------- now with adverb
           "to this end"
 	  ;; "unexpectedly" go with 'intensifier' reading as an adverb
           "until"

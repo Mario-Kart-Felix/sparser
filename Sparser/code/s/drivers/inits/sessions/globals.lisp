@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1991-1997,2011-2019  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1991-1997,2011-2021  David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2006-2007 BBNT Solutions LLC. All Rights Reserved
 ;;; 
 ;;;     File:  "globals"
 ;;;   Module:  "drivers;inits:sessions:"
-;;;  Version:  July 2019
+;;;  Version:  August 2021
 
 ;;;  Flags and the code to initialize them, as pertain to the state
 ;;;  of an entire session with the analyzer.
@@ -70,6 +70,11 @@
   "Guards ad-hoc debugging statements, i.e. temporary info that
    won't be converted to traces.")
 
+(defparameter *abbreviated* t
+  "Controls how verbose the display is. If this flag is up then
+   the presentation should be as compact as possible. What is done
+   varies case by case.")
+
 (defparameter *debug-segment-handling* nil
   "Guards errors and breaks within the segment handling code that traps
    new cases or violations of standing assumptions.")
@@ -89,6 +94,10 @@
 (defparameter *tts-after-each-section* nil
   "Gates displaying the chart after each section.
    Referenced in begin-new-paragraph")
+
+(defparameter *print-text-stats* nil
+  "Gates whether we display the text characteristics of a
+   particular document element. First use with paragraphs.")
 
 
 ;;;-----------------------------------------------
@@ -138,7 +147,7 @@
   "Set as part of the switch settings.
    Read within Consider-morphology-based-edges.")
 
-(defparameter *introduce-brackets-for-unknown-words-from-their-suffixes* nil
+(defparameter *introduce-brackets-for-unknown-words-from-their-suffixes* t
   "Set as part of the switch settings.
    Read within make-word/all-properties to gate actions by Introduce-
    morph-brackets-from-unknown-word.")
@@ -147,9 +156,18 @@
   "Provides a flag to gate operations that reference these lists.
    Set by load-comlex")
 
+(defvar *incrementally-save-comlex-categories* nil
+  "If this flag is up, every Comlex-mediated call to a 'setup' routine
+   (e.g. setup-verb) will call a 'score' category-generating routine
+   to reify the operations the setup does into a file when it can be
+   loaded later.")
+
 ;;;----------
 ;;; analysis
 ;;;----------
+
+(defvar *sparser-is-running* nil
+  "Dynamically bound in analysis-core")
 
 (defparameter *ignore-capitalization* nil
   "A parameter to be used in document styles that controls what
@@ -268,10 +286,6 @@
   "Gates the option to parse the interior of a chunk
    just after the chunk is created. Referenced in
    identify-chunks")
-
-(defparameter *big-mechanism-ngs* nil
-  "use new interpreter for interior of NGs (only called for 
-   NGs without a spanning edge)")
 
 (defparameter *whack-a-rule* nil
   "In the multi-pass control structure this controls the
@@ -443,7 +457,12 @@
   "Flag examined in Do-treetop-triggers. Controls whether conceptual
    analysis or generic actions are done on treetops.")
 
-(defparameter *use-subtypes* t ;; this is a TEST
+(defparameter *compute-items-contexts* nil
+  "Flag read during the after-actions on articles. If it is up we
+   construct chains of edges and such to facilitate determining the
+   grammatical context a item (the edge for an item) has occurred in.")
+
+(defparameter *use-subtypes* t
   "Flag read in dispatch-on-unary-ref-actions and similar places to govern
    the use of mixin categories that induce subtypes of the head category.
    Right now (9/09) it's not clear what the operational story should be
@@ -465,13 +484,8 @@
    span-parentheses. Setting the flag to t prevents default parsing of
    parenthetical expressions.")
 
-(defparameter *timezones-off* nil
-  "Flag examined prior to setting hooks for mark-open-paren and
-   span-parentheses. Setting the flag to t prevents default parsing of
-   parenthetical expressions.")
-
 (defparameter *cfg-flag* nil
-  "For debugging.")
+  "Used when debugging category-creation in SDM&P to ignore new cases")
 
 (defparameter *break-on-multiple-single-term-completions* nil
   "Read in check routines to look at or ignore the cases when more
@@ -479,7 +493,7 @@
 
 (defparameter *interpret-in-context* nil
   "If applicable (not called in every parsing protocol), adds a
-   post sentence analysis sweep over the treetops to identify intended
+   sweep after sentence analysis over the treetops to identify intended
    meeanings from literal referents.")
 
 (defparameter *use-discourse-mentions* nil
@@ -489,9 +503,18 @@
   "Compute pronoun referents on basis of mentions. See pronoun case of
    interpret-in-context.")
 
+(defparameter *try-incrementally-resolving-pronouns* nil
+  "Read in sweep/form-dispatch and determines whether we call
+   attempt-to-dereference-pronoun or just push the pronoun
+   onto the layout.")
+
 (defparameter *ignore-personal-pronouns* t
   "Ignore situational deictics like 'I' or 'we' or 'you'.
    Their grammar is handled in grammar/model/core/mid-level/interlocutor.lisp")
+
+(defparameter *store-restriction-on-pronoun-edge* nil
+  "Have condition-anaphor-edge rewrite an edge over a pronoun to store what
+   we know about the constraints on its type")
 
 ;;;---------
 ;;; readout

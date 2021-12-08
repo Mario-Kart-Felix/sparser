@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2019-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2019-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "prescan"
 ;;;   Module:  "analyzers;char-level:"   ("character level processing")
-;;;  Version:   November 2020
+;;;  Version:   November 2021
 
 ;; Initiated 4/16/19 -- Before doing any analysis, sweep through the input
 ;; text at the character level to normalize newlines (paragraphs), convert
@@ -20,7 +20,7 @@ analyze-text-from-file
      ;; opens the file, sets *filepos-at-beginning-of-source*
   -> (establish-character-source/open-file file-stream)
      ;; sets the buffer globals (see analyzers/char-level/state.lisp)
-     ;; designated *first-character-input-buffer* as the buffer to fill
+     ;; designates *first-character-input-buffer* as the buffer to fill
      ;; Calls read-chars-into-buffer/maximum-count to fill the buffer
      ;; Returns the buffer (which is all nulls (^@) after the ^B)
 
@@ -63,28 +63,34 @@ scan-name-position -> add-terminal-to-chart
     (let ((end (position #\^B *character-buffer-in-use*)))
       (subseq *character-buffer-in-use* 0 (1+ end)))))
 
+
+
 ;;--- driver
 
-(defparameter *post-hyphen-chars* nil)
+(defvar *post-hyphen-chars* nil
+  "Collects characters that follow hyphen is that line is uncommented out")
+
+
 (defun scan-and-swap-character-buffer (&key (echo nil))
   "Character-level preprocessor -- Called by one of the text staging
  functions (analyze-text-from-file or analyze-text-from-string) when
  the flag *prescan-character-input-buffer* is up. Copies the just-populated
  character buffer in use to the alternative buffer, character by character
- and normalizing it, e.g., multiple newlines are reduced to just one,
+ while normalizing it, e.g., multiple newlines are reduced to just one,
  leading spaces are removed, quotation marks and punctuation are flipped,
  html character-coding escape strings decoded, ..."
 
   (declare (special *paragraphs-from-orthography*))
   
   (multiple-value-bind (source sink) (character-buffer-being-used)
+    (declare (special source sink))
     (let* ((index-into-source 0)
            (index-into-sink 0)
            (starting? t)
            (source-exhausted nil)
            (pending-newline? nil)
            char  replacement-char )
-      ;;(push-debug `(,source ,sink)) (break "cntrl-A there?")
+
       (labels ((push-char (c)
                  "Copy the character to the sink buffer and bump
                   both indicies."
@@ -97,8 +103,7 @@ scan-name-position -> add-terminal-to-chart
                    (incf index-into-source)
                    (else (push-char c)
                          (when echo (write-char #\newline))
-                         (setq pending-newline? t))))
-               )
+                         (setq pending-newline? t)))))
 
         (until source-exhausted (swap-in-sink-buffer sink)
           ;; Loop until the 'source-exhausted' flag is non-nil,
@@ -131,6 +136,14 @@ scan-name-position -> add-terminal-to-chart
                (else (when echo (write-char #\space))
                      (push-char char))))
 
+            (#\<
+             (if (embedded-html-newline index-into-source source) ;; "<nl/>"
+               (then
+                 (unless (eql #\newline (aref source (1- index-into-source)))
+                   (push-char #\newline)) ;; double newlines confuses paragraphing
+                 (setf index-into-source (+ 4 index-into-source)))                    
+               (push-char char)))
+
             (#\&
              (multiple-value-setq (replacement-char index-into-source)
                (replace-html-char-encoding source index-into-source))
@@ -144,6 +157,18 @@ scan-name-position -> add-terminal-to-chart
             (#\^M ;;(break "cntrl-M")
              (handle-newline char))
 
+            (#\' ;; detect and convert paired single quotes
+             (if (eql (schar sink (1- index-into-sink)) #\')
+               (then
+                 ;; There is a single-quote already on the sink,
+                 ;; which plus the one we just encountered means we have two adjacent ones.
+                 ;; Back the sink up over to remove the #\' that we just pushed,
+                 ;; and then push a double quote instead
+                 (setf index-into-sink (1- index-into-sink))
+                 (push-char #\"))
+               (else ; let the first one go through to the sink
+                 (push-char char))))
+               
             ((#\. #\,)
              (if (eql (schar source (1+ index-into-source)) #\")
                (then ;; swap them
@@ -216,6 +241,7 @@ scan-name-position -> add-terminal-to-chart
 
 (defparameter *html-char-encodings*
   '(("mdash" #\-) ;; "--" would be better
+    ("ndash" #\-) ;; ditto
     ("laquo" #\')
     ("rsquo" #\')
     ("rdquo" #\')
@@ -237,7 +263,8 @@ scan-name-position -> add-terminal-to-chart
          (encoding (when index-of-semicolon
                      (subseq source (1+ index) index-of-semicolon))))
     (if (and encoding
-               (< (length encoding) 7)) ;;/// lookup the spec
+             (not (string= encoding "")) ;; it's not listed or it's bad syntax
+             (< (length encoding) 7)) ;;/// lookup the spec
       (let ((replacement (cadr (assoc encoding *html-char-encodings* :test #'string=))))
         (unless replacement
           (if (eql (aref encoding 0) #\#)
@@ -252,3 +279,14 @@ scan-name-position -> add-terminal-to-chart
                 (1+ index-of-semicolon)))
       (else
         (values #\& (1+ index))))))
+
+(defun embedded-html-newline (index source)
+  "There is an angle bracket at the index. Search ahead to see whether
+   it's the start of the html pattern for a newline"
+  ;; 
+  #+ignore(push-debug `(,index
+                  ,(subseq source 0 (position #\^B source))))
+  (let* ((characters (loop for i from index to (+ 4 index) collect (aref source i)))
+         (string (apply #'string-append characters)))
+    (search "<nl/>" string)))
+

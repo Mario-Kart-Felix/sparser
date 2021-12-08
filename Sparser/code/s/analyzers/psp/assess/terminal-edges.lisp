@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-1995,2011-2020  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-1995,2011-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "terminal edges"
 ;;;   Module:  "analyzers;psp:assess:"
-;;;  Version:  September 2020
+;;;  Version:  June 2021
 
 ;; initiated 9/12 v2.3
 ;; 1.1 (10/23) reorganized what kinds of property edges are created
@@ -44,7 +44,7 @@
 ;;; entry point
 ;;;-------------
 
-;; (trace-network)
+;; (trace-network) see all traces
 
 (defun install-terminal-edges (word position-scanned next-position)
   "Called from introduce-terminal-edges or from do-just-terminal-edges which
@@ -146,16 +146,20 @@
 
       (cond
        ((eq :digits actual-state)
-        ;; It's a new number, i.e. a number that wasn't defined
-        ;; in the dossier and hasn't already gone through this
-        ;; path --  37 rather than 2. 
-        (when (or *make-edges-over-new-digit-sequences*
-                  *make-edges-for-unknown-words-from-their-properties*)
-          (let ((edge (make-edge-over-unknown-digit-sequence
-                       word position-scanned)))
-            (tr :making-edge-over-digit-sequence edge)
-            (reify-digit-word word edge)
-            (list edge))))
+        (cond
+          ((digits-denote-a-year word position-scanned)
+           (list (make-edge-over-new-year word position-scanned next-position)))
+          (t
+           ;; It's a new number, i.e. a number that wasn't defined
+           ;; in the dossier and hasn't already gone through this
+           ;; path --  37 rather than 2.
+           (when (or *make-edges-over-new-digit-sequences*
+                     *make-edges-for-unknown-words-from-their-properties*)
+             (let ((edge (make-edge-over-unknown-digit-sequence
+                          word position-scanned)))
+               (tr :making-edge-over-digit-sequence edge)
+               (reify-digit-word word edge)
+               (list edge))))))
        
        (capitalization-counts
         ;; This the lowercase version of a word that has rules for
@@ -229,7 +233,7 @@
             nil))
         (else
           (tr :install/one-doesnt-match-actual-state)
-          nil) ))
+          nil)))
     (else
       (let ( edges total-edges )
         (dolist (word capitalized-variants)
@@ -249,10 +253,12 @@
 ;;; instantiating edges from the rule-set
 ;;;---------------------------------------
 
+;; (trace-edges)
+
 (defun preterminals/word (rule-set word
                           position-scanned next-position)
   "This is the final target for many of the threads, including
-   check-caps-variations. It where we make and install the edge(s).
+   check-caps-variations. It is where we make and install the edge(s).
    If the word is mentioned as a literal in some non-unary rule
    then we install an edge for it. Also we look to see if there
    is a single-term rule for the word that rewrites it as another
@@ -264,6 +270,13 @@
 
     (when (setq single-term-rules (rs-single-term-rewrites rule-set))
       (tr :word-has-n-single-term-rules word single-term-rules)
+      (when *filter-vocabulary*
+        (let ((filtered (loop for rule in single-term-rules
+                           unless (ignore-rule? rule)
+                           collect rule)))
+          (tr :single-term-after-filtering filtered)
+          (setq single-term-rules filtered)))
+
       ;; Sweep the rules for tacit form characterizations
       (dolist (cfr single-term-rules)
         (when (word-p (cfr-category cfr))
@@ -308,7 +321,7 @@
             (push (install-preterminal-edge
                    cfr word position-scanned next-position)
                   single-term-edges)))))
-
+    ;;(break "here")
     (cond
      ((and edge-for-literal single-term-edges)
       (tail-cons edge-for-literal single-term-edges))
@@ -336,14 +349,16 @@
     ;; Don't bother to make edges unless there's some affix to react to.
     (when (and *make-edges-for-unknown-words-from-their-suffixes*
                (not (eq :all-caps (pos-capitalization position-scanned))))
-      (make-edge-based-on-morphology word
+   ;   (list ;; install-terminal-edges will expect list, but apparently this already return a list with a single edge -- possibly revisit 
+       (make-edge-based-on-morphology word
                                      position-scanned
                                      next-position))))
+  ;)
 
 
 
 ;;;-------------------------------------------------
-;;; bookeeping used by the Top-edges-only algorithm
+;;; bookkeeping used by the Top-edges-only algorithm
 ;;;-------------------------------------------------
 
 (defun setup-multiple-initial-edges (position-before

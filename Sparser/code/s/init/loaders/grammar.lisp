@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1994-2000,2010-2020  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1994-2000,2010-2021  David D. McDonald  -- all rights reserved
 ;;; Copyright (c) 2007-2010 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;      File:  "grammar"
 ;;;    Module:  "init;loaders;"
-;;;   version:  September 2020
+;;;   version:  July 2021
 
 ;; broken out from loaders;master-loader 4/19/94. Added Whos-news-post-dossiers-loader
 ;;  4/29 added [words;whitespace assignments].  5/25 consolidated the
@@ -85,12 +85,15 @@ omitted and then run (perhaps) after the image has been launched."
   (gate-grammar *brackets*
     ;; the bracket definitions reference syntactic categories
     (gload "brackets;loader"))
-
-  (gate-grammar *kinds*
-    (gload "kinds;0th-loader"))
   
   (gate-grammar *tree-families*
     (gload "tree-families;shortcut-loader"))
+
+  (gate-grammar *kinds*
+    (gload "kinds;0th-loader"))
+
+  (gate-grammar *default-semantics-for-NP*
+    (gload "syntax-art;early-syntactic-categories")) ;; tree-family for NP references these categories
 
   (gate-grammar *tree-families*
     ;; This should come after any of the modules whose categories
@@ -101,15 +104,15 @@ omitted and then run (perhaps) after the image has been launched."
     (gload "kinds;1st-loader") ;; defines the bulk of the upper model
     (gload "kinds;loader")) ;; leftover categories on their way  out
 
-  (gate-grammar *general-words*
-    (gload "words;loader")
-    ;; the function words make reference to bracket types and upper model categories
-    (gload "words;whitespace assignments"))
-
   (gate-grammar *comparatives*
     ;; Moved this early to handle comparative adjective in collections
-    ;; Has to follow tree-families
+    ;; Has to follow tree-families and attribution in kinds
     (gload "syntax-comp;comparatives"))
+
+  (gate-grammar *general-words*
+    ;; the function words make reference to bracket types and upper model categories
+    (gload "words;loader")
+    (gload "words;whitespace assignments"))
 
   (gate-grammar *collections*
     ;; sequence-of-numbers requires sequence. Collections had been after
@@ -128,7 +131,8 @@ omitted and then run (perhaps) after the image has been launched."
 
   (gate-grammar *syntax*
     ;; be & have (etc) reference tree-families
-    (gload "syntax;loader"))
+    (gload "syntax;loader")
+    (gload "score;loader"))
 
   (gate-grammar *general-words* ;; can depend on mid-level
     (gload "words;loader 2"))
@@ -189,6 +193,8 @@ omitted and then run (perhaps) after the image has been launched."
   (gate-grammar *finance*
     (gload "finance;loader"))
 
+  (gate-grammar *acumen-motifs*
+    (gload "motifs;loader"))
 
   (gate-grammar *ambush*
     (gload "ambush;loader"))
@@ -288,6 +294,9 @@ omitted and then run (perhaps) after the image has been launched."
   (gload "words;frequency")
   (gload "words;porter-stemmer")
   (gload "one-offs;loader")
+  
+  (when *incorporate-generic-lexicon*
+    (prime-comlex))
 
   (gload "dossiers;loader") ; n.b. includes verbs
   
@@ -309,11 +318,8 @@ omitted and then run (perhaps) after the image has been launched."
     (late-time-files) ;; time-methods
     (make-temporal-sequences))
 
-  (when *incorporate-generic-lexicon*
-    (prime-comlex))
-
   (gate-grammar *score-stats*
-        (gload "score-stats;loader"))
+    (gload "score-stats;loader"))
 
   (let ((*inhibit-construction-of-systematic-semantic-rules* t))
     (declare (special *inhibit-construction-of-systematic-semantic-rules*))
@@ -328,8 +334,9 @@ omitted and then run (perhaps) after the image has been launched."
   ;; support them.
 
   (gate-grammar *score-verbs*
-                (gload "bio;score-verbs.lisp")
-                (gload "bio;score-nouns.lisp"))
+     (gload "dossiers;comlex-categories")
+     #+ignore(gload "bio;score-verbs.lisp")
+     #+ignore(gload "bio;score-nouns.lisp"))
 
   (setup-vocabulary-suppression)
 

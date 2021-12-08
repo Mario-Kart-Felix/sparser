@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-1995,2012-2013 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-1995,2012-2013,2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "names"
 ;;;   Module:  "model;core:people:"
-;;;  version:  1.5 September 2013
+;;;  version:  June 2021
 
 ;; initiated 6/8/93 v2.3, added indexes 6/15.
 ;; 1.1 (1/7/94) Beginning to simplify the indexing.  Tweeked that 10/3.
@@ -32,11 +32,10 @@
 (define-category  person-name  ;; specialize the name ??
   :instantiates self
   :specializes name
-  :index (:permanent
+  :index (:permanent :apply
           :special-case :find find/person-name
                         :index index/person-name
                         :reclaim reclaim/person-name)
-
   :binds ((sequence . sequence)
           (last-name . name-word)))
 
@@ -49,7 +48,7 @@
   :specializes person-name
   ;; "W. Ed Tyler"
   ;; Flag the initial specifically ?
-  :index (:permanent :key first-name last-name)
+  :index (:permanent :apply :key first-name last-name)
   :binds ((first-name . (:or name-word initial))
           (standard-prefix . person-prefix)
           (version . person-version)))
@@ -78,11 +77,12 @@
               a last-name variable.~%Something upstream used ~
               something other than make-person-name-from-items."
              person))
-    (bind-variable 'name-of person last-name))) ;; needs to be checked in DLI case
+    #+ignore(bind-variable 'name-of person last-name)
+    (set-name-of last-name person)))
 
 ;;--- make
 
-(defun make-person-name-from-items (items &key version sequence)
+(defun make-person-name-from-items (items &key version sequence prefix)
   ;; Called from Categorize-and-form-name
   ;; The 'version' argument is an index into the list of items.
   (let ((sequence (or sequence
@@ -97,6 +97,11 @@
                   (define-individual 'person-name
                     :sequence sequence
                     :last-name last-name))
+                 ((and (null first-name) prefix) ;; "St. Patrick"
+                  (define-individual 'person-name/first-last
+                    :sequence sequence
+                    :last-name last-name
+                    :standard-prefix prefix))
                  (first-name ;; check for initials, multiple terms
                   (define-individual 'person-name/first-last
                     :sequence sequence
@@ -104,8 +109,9 @@
                     :first-name first-name
                     :version version))
                  (t
-                  (push-debug `(,items))
-                  (break "Fell through cases in person-name - new one?")))))
+                  (when *debug-pnf*
+                    (push-debug `(,items))
+                    (break "Fell through cases in person-name - new one?"))))))
       name )))
 
 
@@ -155,8 +161,7 @@
       ;; provides hooks for being creative about name mergers
       (when (member sequence instances :test #'eq)
         ;; now we look up what name this sequence is associated with
-        (let ((name
-               (name-based-on-sequence/uncategorized sequence)))
+        (let ((name (name-based-on-sequence/uncategorized sequence)))
           (when name
             (person-who-has-name name)))))))
 ;;/// refactor these two

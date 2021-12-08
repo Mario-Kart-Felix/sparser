@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER COMMON-LISP) -*-
-;;; Copyright (c) 2020 SIFT LLC. All Rights Reserved
+;;; Copyright (c) 2020-2021 SIFT LLC. All Rights Reserved
 ;;;
 ;;;    File: "general-verbs"
 ;;;  Module: "grammar/model/sl/biology/
-;;; version: November 2020
+;;; version: November 2021
 
 ;; Lifted out of verbs.lisp 2/23/17. These verbs are either
 ;; quite general (applicable to many domains), or are needed
@@ -131,14 +131,19 @@
            :to cause))
 
 
-(define-category block :specializes negative-bio-control
+(define-category block/prevent
+  :specializes negative-bio-control
   :realization
      (:verb "block"
-      :noun "blocking"
-      :etf (svo-passive)
-      :with object))
-;; which one wins? 
-(define-category block
+      :noun ("blocking" "blockage")
+      :with object)
+  :documentation "The action of 'blocking' a process
+ an involve introducing some sort of 'blockage' into the
+ path the process would go through. We can also speak about
+ the act of blocking', which means that this is a kind of
+ process/result relationship.")
+
+#+ignore(define-category block
   :specializes negative-bio-control
   :realization
     (:verb "block"
@@ -228,7 +233,7 @@
     :restrict ((theme (:or be biological))) ;; could be "the effects..."
     :realization
     (:verb ("consider" :present-participle "considering"
-                       :past-tense "considered") ;; keyword: ENDS-IN-ED 
+                       :past-tense "considered")
 	   :noun "consideration"
 	   :etf (svo-passive)))
 
@@ -240,7 +245,7 @@
 
 (define-category constitute :specializes bio-relation
   :realization
-  (:verb "constitute" ;; keyword: ENDS-IN-ED 
+  (:verb "constitute"
          :etf (svo)))
 
 (define-category construct :specializes bio-method
@@ -469,9 +474,9 @@
 
 (define-category direct-control ;; to avoid conflict with the adjective "direct"
   :specializes bio-control
-  :realization
-  (:verb   "direct" :noun "direction"
-           :etf (svo-passive)))
+  :realization (:verb  "direct" 
+                :etf (svo-passive)))
+#| :noun "direction" moved to the category direction |#
 
 (define-category cull
   :specializes bio-method
@@ -1156,7 +1161,7 @@
 
 (define-category put-forward :specializes bio-rhetorical
    :realization
-   (:verb ("put" :prep ("forward" "put" put-forward))
+   (:verb ("put" :prep "forward")
     :etf (svo-passive)))
 
 
@@ -1431,9 +1436,9 @@
        :etf (svo-passive)))
 |#
 
-(define-category tend :specializes action-on-eventuality
+(define-category tend :specializes perdurant ;; TOO GENERAL
   ;; :mixins (bio-tocomp) working on this.. other comps not working.
-  :mixins (related-thing)
+  :mixins (action-on-eventuality related-thing)
   :realization
   (:verb "tend" ;; keyword: ENDS-IN-ED 
    :noun "tendency"

@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2018-2019  David D. McDonald  -- all rights reserved
+;;; copyright (c) 2018-2021  David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "verbs"
 ;;;   Module:  "model;dossiers:"
-;;;  version:  June 2019
+;;;  version:  August 2021
 
 (in-package :sparser)
 
@@ -82,27 +82,15 @@ dm #79 "a more precise answer" --> see answer/info in mid-level/things.lisp
  go  
  going to X / gonna
 
-come
- come here/home/(with me) to the Casbah/to bed
- came from Philly
- coming for grass under the bed/breakfast
- Comlex-entry: (comlex come (adjective)
-                         (noun (features ((countable))))
-                         (verb
-                          (tensed/singular comes infinitive come past-tense
-                           came)
-                          (features ((vmotion)) subc
-                           ((advp) (pp-pred-rs pval (to)) (adjp-pred)
-                            (p-ing-sc pval (into)) (pp-pp pval (from to))
-                            (to-inf-sc)
-                            (pp pval
-                                (after off out of to under from into of with))
-                            (part-pp adval (down in around back over up on)
-                             pval (for from on to with))
-                            (part adval
-                             (along in about around back over out to up))
-                            (intrans)))))
+
  |#
+
+
+(define-category appear ; Molly experiment
+  :specializes state
+  :mixins (expletive-subject raising-to-subject with-expletive)
+  :realization (:verb "appear"))
+                      
 
 (define-category arrive
   :specializes move
@@ -165,6 +153,33 @@ come
              (patient perdurant))
   :realization (:verb ("carry" :prep "out")))
 
+
+(define-category come
+  :specializes move ;; core/kinds/movement.lisp
+  :mixins (basic-intransitive)
+  :realization (:verb ("come" :past-tense "came"))
+  :documentation
+     "Move in the opposite direction as 'go'
+ come here/home/(with me) to the Casbah/to bed
+ came from Philly
+ coming for (grass under the bed)/breakfast
+ Comlex-entry: (comlex come (adjective)
+                         (noun (features ((countable))))
+                         (verb
+                          (tensed/singular comes infinitive come past-tense
+                           came)
+                          (features ((vmotion)) subc
+                           ((advp) (pp-pred-rs pval (to)) (adjp-pred)
+                            (p-ing-sc pval (into)) (pp-pp pval (from to))
+                            (to-inf-sc)
+                            (pp pval
+                                (after off out of to under from into of with))
+                            (part-pp adval (down in around back over up on)
+                             pval (for from on to with))
+                            (part adval
+                             (along in about around back over out to up))
+                            ))))   ")
+
 (define-category comply
   :specializes state
   :mixins (prop-attitude) ;;//// rework
@@ -193,8 +208,15 @@ come
 (define-category fail
   :specializes process ;; acomplishment?
   :mixins (action-on-eventuality)
-  :realization 
-    (:verb "fail"))
+  :realization (:verb "fail"))
+
+(define-category feed
+  :specializes process
+  :mixins (simple-action) ; agent & theme
+  :realization (:verb ("feed" :present-participle "feeding" :past-tense "fed")
+                ) ;; noun -- what it is we supply: 'chicken feed'
+  :documentation "Should try to capture the relationship to the noun")
+
 
 (define-category find ;; see bio;harvard-terms: bio-find
   :specializes process
@@ -223,6 +245,30 @@ come
   :documentation "'Get' as in 'come to have'. Could be
     construded as generalized possession: 'I've got a cold'.")
 
+(define-category go
+  :specializes move ;; core/kinds/movement.lisp
+  :mixins (basic-intransitive)
+  :realization (:verb ("go" :past-tense "went"
+                            :present-particple "going"
+                            :past-participle "gone"
+                            :third-singular "goes"  ;; :tensed/singular
+                            :third-plural "go")
+                #|:noun ("go" :plural :none) |#) ;; !! -- new option 4/21
+  :documentation "Takes a vast number of bound prepositions and idiomatic
+    uses. Also used as a model ('they're going to come'). The entry in
+    Collins is a good source.")
+
+(define-category happen
+  :specializes state
+  :mixins (basic-intransitive) ; patient
+  :realization (:verb ("happen"
+                       :past-tense "happened"
+                       :present-participle "happening")
+                      )
+  :documentation "Very general word that an event of some sort
+     exists. Synonyms are 'occur' and 'take place'.
+     Takes locative agent. ///takes a to-comp that needs reserch.
+     Folds into idioms: 'as happens in' aspp2 #6")
 
 (define-category imply
   :specializes state
@@ -278,6 +324,7 @@ come
  (prep)
  (adjective (:features ((gradable)))))  |#
 
+
 (define-category look-up
   :specializes process
   :mixins (action-verb)
@@ -295,6 +342,13 @@ come
     (:verb ("make" :past-tense "made")
            :mumble ("make" svo :a agent :o patient)))
 
+
+(define-category make-decision
+  :specializes decide
+  ;;/// The use of a light verb with the nominal form of a verb is so common
+  ;; that it should be abstracted into a synonym-generating operator
+  :realization (:verb ("make" :phrase decision)))
+
 (define-category make-up
     ;; in the sense of "compose" "the residues make up the binding site"
   :specializes process
@@ -302,7 +356,7 @@ come
   :restrict ((patient endurant))
   :documentation "Handles both transitive and svo-adj. Should it?"
   :realization
-    (:verb ("make" :past-tense "made" :prep "up") ))
+    (:verb ("make" :prep "up") ))
 
 (define-category play
   :specializes process
@@ -346,6 +400,12 @@ come
     the change in some value over time is in amounts;measurements.lisp")
 
 
+(define-category seem ; Molly experiment
+  :specializes state
+  :mixins (expletive-subject raising-to-subject with-expletive)
+  :realization (:verb "seem"))
+
+
 (define-category sell
   :specializes process
   :mixins (directed-action)
@@ -377,6 +437,28 @@ come
    (:mumble ("suggest" svscomp :s ? :o statement))))
 |#
 
+
+(define-category take
+  :specializes achievement
+  :mixins (simple-action)
+  :realization (:verb ("take" :past-tense "took")
+                 )     
+  :documentation "Comlex also has a noun entry, as in 'the take'. And it lists
+ the zillion other prepositions and constructions it participates in")
+#| (comlex-entry "take")
+((verb (:tensed/singular "takes" :infinitive "take" :past-tense "took")
+  (:features ((vveryving :pastpart t)) :subc
+   ((part-np-as-np :adval ("along" "back" "on" "over")) (extrap-np-s)
+    (p-ing-sc :pval ("to")) (part-np-pp :adval ("up") :pval ("with"))
+    (part-pp :adval ("out" "off" "up") :pval ("into" "for" "on" "with" "to"))
+    (part-np :adval
+     ("along" "away" "back" "down" "on" "off" "over" "up" "out"))
+    (part :adval ("off" "over")) (pp :pval ("into" "on" "after" "to"))
+    (np-to-inf-oc) (np-advp) (np-adjp) (np-to-np) (np-as-np) (np-tobe)
+    (intrans) (np) (np-pp :pval ("before" "for" "p-dir" "upon" "at")))))
+ (noun (:features ((countable))))) |#
+
+
 ;;sp> (comlex-entry "tell")
 ;;((verb (:tensed/singular "tells" :infinitive "tell" :past-tense "told")
 
@@ -407,8 +489,9 @@ come
 
 (unless (or (current-script :biology)
             (current-script :blocks-world)
-            (current-script :score))
-  ;; Let bio;verbs avoid hassle of trying to overwite these
+            (current-script :score)
+            (current-script :acumen))
+  ;; Lets bio;verbs avoid hassle of trying to overwite these
   (define-movement-verb "cross")
   (define-movement-verb "drive")
   (define-movement-verb '("follow" :past-tense "followed") ; suppress doubling of #\w
@@ -421,20 +504,23 @@ come
 
 ;;------------------------------ music ---------------
 
-;(define-category make-ditrans
-  ;:specializes process
-  ;:mixins (action-verb with-goal)
-  ;:restrict ((actor physical-agent)
-             ;(patient symbolic))
-  ;:binds ((goal symbolic))
-  ;:documentation ""
-  ;:realization
-    ;(:verb ("make" :past-tense "made")
-     ;:etf svoa 
-     ;:s actor
-     ;:o patient
-     ;:a goal
-     ;:mumble ("make" svoa :s actor :o patient :a goal)))
+;;/// Fix svoa -- this errors out in make-scheme-mapping with
+;;  No value for loc-v/r among the substitution args
+;;
+;; (define-category make-ditrans
+;;   :specializes process
+;;   :mixins (action-verb with-goal)
+;;   :restrict ((actor physical-agent)
+;;              (patient symbolic))
+;;   :binds ((goal symbolic))
+;;   :documentation ""
+;;   :realization
+;;     (:verb ("make" :past-tense "made")
+;;      :etf svoa 
+;;      :s actor
+;;      :o patient
+;;      :a goal
+;;      :mumble ("make" svoa :s actor :o patient :a goal)))
 
 
 
@@ -513,10 +599,10 @@ come
   :binds ((agent physical-agent) (theme musical) (extent trajectory))
   :realization (:verb "transpose"
                 :tree-family vp+adjunct
-    :mapping ((vg . :self)
-              (vp . move)
-              (adjunct . trajectory)
-              (slot . extent))))
+                :mapping ((vg . :self)
+                          (vp . move)
+                          (adjunct . trajectory)
+                          (slot . extent))))
 
 
 (define-category raise-note
@@ -525,11 +611,11 @@ come
            move-something-verb)
   :binds ((agent physical-agent) (theme musical) (goal musical))
   :realization (:verb "raise"
-                      :tree-family vp+adjunct
-    :mapping ((vg . :self)
-              (vp . move)
-              (adjunct . to-dative)
-              (slot . goal))))
+                :tree-family vp+adjunct
+                :mapping ((vg . :self)
+                          (vp . move)
+                          (adjunct . to-dative)
+                          (slot . goal))))
 
 
 (define-category lower-note
@@ -537,14 +623,15 @@ come
   :mixins (with-agent with-theme with-goal move-something-verb)
   :binds ((agent physical-agent) (theme musical) (goal musical))
   :realization (:verb "lower"
-                      :tree-family vp+adjunct
-    :mapping ((vg . :self)
-              (vp . move)
-              (adjunct . to-dative)
-              (slot . goal))))
+                :tree-family vp+adjunct
+                :mapping ((vg . :self)
+                          (vp . move)
+                          (adjunct . to-dative)
+                          (slot . goal))))
 
 
 ;; "work on measures 1 and 2"
+;;
 (define-category work-on
   :specializes process
   :mixins (simple-action)
@@ -572,10 +659,13 @@ come
   :mixins (with-agent with-goal with-theme with-extent with-specified-location move-something-verb)
   :restrict ((agent physical-agent)
              (theme endurant)
-             (goal (:or endurant direction)) (extent measurement))
-  :documentation "This allows proper chunking of a locative complements to 'move' verbs (more than just 'to'), where previously these
-  locative complements were swalowed up by the theme np. It seems that move is a complex category with lots of working
-  parts, so this may just be a temporary hack."
+             (goal (:or endurant direction))
+             (extent measurement))
+  :documentation "This allows proper chunking of a locative
+  complements to 'move' verbs (more than just 'to'), where previously
+  these locative complements were swalowed up by the theme np. It
+  seems that move is a complex category with lots of working parts, so
+  this may just be a temporary hack."
    :realization (:verb "move"
                  :etf (svol)
                  :s agent
@@ -709,16 +799,4 @@ come
   :documentation "Need to indicate that the patient must
     have an axis that it can rotate around")
 
-;;Experimenting
-
-(define-category seem
-  :specializes state
-  :mixins (expletive-subject raising-to-subject with-expletive)
-  :realization (:verb "seem"))
-
-(define-category appear
-  :specializes state
-  :mixins (expletive-subject raising-to-subject with-expletive)
-  :realization (:verb "appear"))
-                      
                       

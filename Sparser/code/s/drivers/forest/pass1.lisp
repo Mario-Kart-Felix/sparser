@@ -3,7 +3,7 @@
 ;;; 
 ;;;     File:  "pass1"
 ;;;   Module:  "drivers;forest:"
-;;;  Version:  January 2021
+;;;  Version:  March 2021
 
 ;; Broken out of island-driving 10/23/14.
 ;; RJB 12/14/2014 -- simple fix to prevent failure in simple-subject-verb when subject is a pronoun -- need to treat pronouns better <<DAVID>>
@@ -11,7 +11,7 @@
 ;;  was #+ignored
 ;; 3/12/15 Rewrote try-spanning-conjunctions to leave out the special cases and not
 ;;  worry about how many conjunction edges there are. 
-;; 5/8/2015 DAVID -- look-for-prep-binders now also handle premodifiers for prepositions, as in "30 minutes after"
+;; 5/8/2015 DAVID -- look-for-prep-binders now also handles premodifiers for prepositions, as in "30 minutes after"
 ;; 5/13/2015 modified knit-parens-into-neighbor to copy the base item when binding trailing-parenthetical -- this prevents
 ;;  smashing base proteins, etc.
 
@@ -21,7 +21,7 @@
 ;; driver
 ;;--------
 
-(defun pass-one (sentence) ;;layout)
+(defun pass-one (sentence)
   "Makes a couple of layout-mediated special checks before and
    after its main operation of running the whack-a-rule-cycle
    to walk through pairs of constituents."
@@ -30,7 +30,8 @@
     (tr :handle-parentheses)
     (handle-parentheses))
   
-  ;;(Overnight 1 (p "Ras, like all GTPases, cycles between an inactive GDP-bound state and  an active GTP-bound state.")) 
+  #|Overnight 1 (p "Ras, like all GTPases, cycles between an inactive
+      GDP-bound state and an active GTP-bound state.") |#
   (when (there-are-conjunctions?)
     (tr :looking-for-short-conjuncts)
     (let ((*allow-form-conjunction-heuristic* nil))
@@ -40,6 +41,10 @@
   (when (there-are-prepositions?)
     (tr :look-for-prep-binders)
     (look-for-prep-binders))
+
+  (when (post-mvb-tt)
+    (tr :looking-at-what-after-the-verb)
+    (look-for-phrasal-verb))
   
   (when (there-are-conjunctions?) 
     ;; Originally inserted this call for conjunctions to merge
@@ -298,8 +303,26 @@
                      left-neighbor
                      prep-edge
                      rule)))))) )))))
-     
 
+(defun look-for-phrasal-verb ()
+  "Modeled directly on look-for-prep-binders."
+  (let* ((post-mvb-edges (post-mvb-tt)) ;; returns a list of edges
+         (post-mvb-edge (car post-mvb-edges))
+         (left-neighbor (when (edge-p post-mvb-edge) ; "gonna"
+                          (left-treetop-at/edge post-mvb-edge)))
+         (verb?
+          (when (and left-neighbor ;; could be sentence-initial
+                     (not (word-p left-neighbor))) ;; treetop could be a word
+            (vg-category? left-neighbor))))
+    (when verb?
+      (if (phrasal-verb? left-neighbor)
+        (let ((edge (check-one-one left-neighbor post-mvb-edge)))
+          (if edge
+            (tr :goes-with-phrase left-neighbor post-mvb-edge edge)
+            (tr :does-not-go-with-phrase left-neighbor post-mvb-edge))
+          edge)
+        (tr :not-a-phrasal-verb left-neighbor)))))
+    
  
 ;;;-----------------------------------------------
 ;;; leading prepositional adjunct, p ossible comma
@@ -528,8 +551,9 @@
   (dolist (paren-edge (parentheses (layout)))
     (let ((left-neighbor (left-treetop-at/only-edges paren-edge)))
       (when left-neighbor ;; conceivably it could be sentence initial
-        ;; but its more likely to be an edge than not        
-        (knit-parens-into-neighbor left-neighbor paren-edge)))))
+        ;; but it's more likely to be an edge than not
+        (or (multiply-edges left-neighbor paren-edge) ;; the whack cycle will get it
+            (knit-parens-into-neighbor left-neighbor paren-edge))))))
 
 
 (defparameter *bind-parens-into-semantics* nil
@@ -539,7 +563,7 @@
   (declare (special left-neighbor paren-edge))
   (tr :parens-after left-neighbor paren-edge)
   (when (and (edge-p left-neighbor) ;; sometimes the left-neighbor is just a word
-	     ;; we should note when that happens and try to reduce the cases
+	     ;;// we should note when that happens and try to reduce the cases
 	     (eq (pos-edge-ends-at left-neighbor)
 		 (pos-edge-ends-at paren-edge)))
     ;; already knit. If this is called from interp-big-mech-chunk it's
@@ -550,11 +574,9 @@
   (cond
     ((and (edge-p left-neighbor)
 	  (edge-referent left-neighbor)
-	  (or
-	   (individual-p (edge-referent left-neighbor))
-	   (category-p (edge-referent left-neighbor))))
-     (let* ((referent
-	     (individual-for-ref (edge-referent left-neighbor)))
+	  (or (individual-p (edge-referent left-neighbor))
+              (category-p (edge-referent left-neighbor))))
+     (let* ((referent (individual-for-ref (edge-referent left-neighbor)))
 	    (constituents (edge-constituents paren-edge))
 	    (count (when constituents ;;///review the code to guarentee this
 		     ;; count is a crude 1st-cut distinction in what's inside 
@@ -563,11 +585,10 @@
 	    (paren-referent (referent-of-parenthetical-expression
 			     count paren-edge)))
       
-       (when (and (individual-p paren-referent)
-		  (individual-p referent))
-	 (when *bind-parens-into-semantics*
+       (when *bind-parens-into-semantics* ;; obsolete in DLI case
+         (when (and (individual-p paren-referent)
+                    (individual-p referent))
            (setq referent (bind-variable (lambda-variable-named 'trailing-parenthetical)
-                                         ;;    obsolete in DLI case
                                          paren-referent
                                          referent))))
        
@@ -599,7 +620,7 @@
      )))
 
 (defun referent-of-parenthetical-expression (count paren-edge)
-  ;; If there's one interior edge return it's referent. 
+  ;; If there's one interior edge return its referent. 
   ;; If there are more edges then try to categorize them but
   ;; for now returning nil is ok. In general the content of the
   ;; interior dictates the relationship that we bind so we would

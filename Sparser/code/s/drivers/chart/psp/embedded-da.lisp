@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2020-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;      File: embedded-da
 ;;;   Module:  "drivers;chart:psp:"
-;;;  Version:  November 2020
+;;;  Version:  May 2021
 
 ;; Initiated 10/26/20. To organize appling DA rules during the
 ;; initial sweeps. 
@@ -63,64 +63,6 @@ like any other rule.
     (apply-debris-analysis-to-region start end)))
 
 
-(defun apply-debris-analysis-to-region (start end)
-  "Scan the treetop edges between the start and end positions
-   for edges/words that are associated with the first node
-   in a debris analysis pattern. The control structure is
-   to (1) identify a triggering treetop edge, (2) try to do
-   the match, then (3a) if it succeeds, recurse on a new
-   start position based on where the newly created edge ends,
-   or (3b) if it fails then recurse on the position just after
-   the current start position."
-
-  (let* ((treetops (treetops-in-segment start end))
-         da-node  edge  result next-pos )
-
-    ;; 1. search for a triggering edge. Set edge and da-rule.
-    ;; the edge is the one we start the DA execution at.
-    ;; Particularly importand when there are multiple interpretations
-    ;; of a word, e.g. "p"
-    (do ((tt (car treetops) (car remainder))
-         (remainder (cdr treetops) (cdr remainder)))
-        ((null tt))
-      (multiple-value-setq (edge da-node)
-        (triggers-trie? tt))
-      (when da-node ; take the first one that's a trigger
-        (return)))
-
-    ;; Setup for 3b
-    (setq next-pos (if edge
-                     (pos-edge-ends-at edge)
-                     (chart-position-after start)))
-    (when (eq next-pos end)
-      (return-from apply-debris-analysis-to-region t))
-
-    (if da-node
-      (then
-        (tr :embedded/triggers-trie edge)
-        (setq result (standalone-da-execution da-node edge))
-        (if result
-          (typecase result
-            (edge
-             (tr :embeded-produced-edge result)
-             (setq next-pos (pos-edge-ends-at edge)) ; 3a
-             (when (eq next-pos end)
-               (return-from apply-debris-analysis-to-region t))
-             (apply-debris-analysis-to-region next-pos end))
-            (keyword
-             (case result
-               (:trie-exhausted ; no match, so continue at next positin
-                (apply-debris-analysis-to-region next-pos end))
-               (otherwise
-                (break "Unexpected keyword ~a as DA 'result'" result))))
-            (otherwise
-             (break "Funny result: ~a" result)))
-          (else ; 3b
-            (apply-debris-analysis-to-region next-pos end))))
-      (else ; 3b
-        (apply-debris-analysis-to-region next-pos end)))))
-
-
 (defun triggers-trie? (tt)
   "Does this treetop edge initiate a DA pattern?
    Since treetops-in-segment uses next-treetop/rightward, there
@@ -146,3 +88,76 @@ like any other rule.
             finally (return item))))
       ((or word polyword) ; (not strictly true as far as DA is concerned)
        nil))))
+
+
+(defun apply-debris-analysis-to-region (region-start region-end)
+  "Scan the treetop edges between the start and end positions
+   for edges/words that are associated with the first node
+   in a debris analysis pattern. The control structure is
+   to (1) identify a triggering treetop edge, (2) try to do
+   the match, then (3a) if it succeeds, recurse on a new
+   start position based on where the newly created edge ends,
+   or (3b) if it fails then recurse on the position just after
+   the current start position."
+  (let ((start region-start)
+        (end region-end)
+        tt  pos-after  next-pos
+        treetops  da-node  edge  result
+        trigger-position )
+    
+    (loop
+       (setq treetops (treetops-in-segment start end))
+
+       ;; 1. search for a triggering edge. Set edge and da-rule.
+       ;; the edge is the one we start the DA execution at.
+       ;; Particularly importand when there are multiple interpretations
+       ;; of a word, e.g. "p"
+       (do ((tt (car treetops) (car remainder))
+            (remainder (cdr treetops) (cdr remainder)))
+           ((null tt))
+         (multiple-value-setq (edge da-node)
+           (triggers-trie? tt))
+         (when da-node ; take the first one that's a trigger
+           (setq trigger-position (etypecase tt
+                                    (edge (pos-edge-starts-at tt))
+                                    (edge-vector
+                                     (ev-position tt))))
+           (return)))
+
+       ;; Setup for 3b
+       (setq next-pos (if edge
+                        (pos-edge-ends-at edge)
+                        (chart-position-after start)))
+       (when (eq next-pos region-end)
+         (return-from apply-debris-analysis-to-region t))
+
+       (if da-node
+         (then
+           (tr :embedded/triggers-trie edge)
+           (setq result (standalone-da-execution da-node edge))
+           (if result
+             (typecase result
+               (edge
+                (tr :embeded-produced-edge result)
+                (setq next-pos (pos-edge-ends-at edge)) ; 3a
+                (when (eq next-pos region-end)
+                  (return-from apply-debris-analysis-to-region t))
+                (setq start next-pos))
+               (keyword
+                (case result
+                  (:trie-exhausted ; no match, so continue at next position
+                   (setq start next-pos))
+                  (otherwise
+                   (break "Unexpected keyword ~a as DA 'result'" result))))
+               (otherwise
+                (break "Funny result: ~a" result)))
+          
+             (else ; 3b
+               ;; no result, resume from position of the trigger
+               (setq start (chart-position-after trigger-position)))))
+         
+      (else ; 3b
+        (if (eq (pos-terminal next-pos) *end-of-source*)
+          (return-from apply-debris-analysis-to-region t)
+          (setq start next-pos)))))))
+

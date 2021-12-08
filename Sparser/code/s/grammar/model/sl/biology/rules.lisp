@@ -123,7 +123,7 @@
 ;;--- no-space pattern
 
 ;; (p "in the 'off' state.")
-(define-no-space-pattern scare-quotes
+#+ignore(define-no-space-pattern scare-quotes
   :acceptance-function cover-scare-quotes
   :transition-net ((:initial + "'" -> :single-quote-seen)
                    (:single-quote-seen + word -> :single-quote-word)
@@ -441,6 +441,9 @@
   :referent (:head left-edge))
 |#
 
+#+ignore
+;; If you really want that, use create-punctuation-edge-rule
+;; See grammar/rules/words/punctuation-rules.lisp
 (def-cfr semicolon (";")
   :form punctuation)
 

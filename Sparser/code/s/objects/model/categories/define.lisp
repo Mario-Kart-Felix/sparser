@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-2005,2010-2019 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-2005,2010-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "define"
 ;;;   Module:  "objects;model:categories:"
-;;;  version:  August 2019
+;;;  version:  March 2021
 
 ;; initiated 7/16/92 v2.3
 ;; 8/5 added call to process rdata, 8/31 gated it by the field having
@@ -59,15 +59,13 @@
 
 (defun define-category/expr (symbol parameter-list &optional
                              (source-location *file-being-lloaded*))
+  "called from Define-category when there are any arguments beyond
+   the symbol. If just the symbol is given it's an implicit action
+   by define-cfr to establish a non-terminal.
 
-  ;; called from Define-category when there are any arguments beyond
-  ;; the symbol. If just the symbol is given it's an implicit action
-  ;; by define-cfr to establish a non-terminal.
-
-  ;; NOTE:: We assume that this is the only way that categories can be defined with variables!!
-  ;;  so that all calls to find-or-make-category-object that do not come through here
-  ;;  simply make the category itself
-
+   NOTE:: We assume that this is the only way that categories can be defined with variables!!
+   so that all calls to find-or-make-category-object that do not come through here
+   simply make the category itself"
 
   (let ((old-obj (category-named symbol)))
     (when old-obj
@@ -83,12 +81,13 @@
         (format t "~&cache-variable-lookup called on redefinition of ~s~%" old-obj)
         ;;(lsp-break "cache-variable-lookup")
         (cache-variable-lookup))
-      category )
-    ))
+      
+      category )))
+
 
 (defun define-mixin-category/expr (symbol parameter-list)
-  ;; called from define-mixin-category.
-  ;; These can't be instantiated
+  "called from define-mixin-category.
+   These can't be instantiated"
   (let ((category (find-or-make-category-object symbol :mixin)))
     (apply #'decode-category-parameter-list category parameter-list)
     category ))
@@ -117,7 +116,30 @@
       category)))
 
 
-
+;; Called from setup-phrasal-verb
+;;
+(defgeneric create-new-category (base)
+  (:documentation "Intended for programmatic construction of categories
+    and the words that realize them. Effectively reproduces the activity
+    done by establish-unknown-word when the base is a word encountered
+    while parsing. We have to determine what the realizing word is and
+    set it up like any other word, and we have to flesh out a category
+    for it, including Comlex information as if it had come in by that route.
+    Returns the label for this category for insertion in a rule.")
+  (:method ((pname string))
+    "Set up the pname as a word, then pass on to standard setup routines"
+    (let ((word (resolve/make pname :source :programmatic)))
+      (create-new-category word)))
+  (:method ((name symbol))
+    "Create the word, then invoke that path"
+    (let ((word (create-new-category (string-downcase (symbol-name name)))))
+      (create-new-category word)))
+  (:method ((word word))
+    "Invoke the category-creation machinery and return the result"
+    (create-category-from-word word :pos 'noun))
+  (:method ((c category))
+    ;; the has-rules? check in the caller has failed
+    c))
 
 ;;;-----------
 ;;; workhorse
@@ -213,12 +235,15 @@
                                     index-field
                                     instantiates-field
                                     rule-label)
-  
+  "These are special, optional tailored things that haven't seemed
+   central enough to add more slots to the category struct for them.
+   Instead, we stash them on an instance of another struct,
+   category-operations, which we could extend further if it
+   is ever useful. 
+     To permit redefinition of category definitions during development
+   we overwrite the indexes/objects that are created here."
   (declare (special *supply-instantiates-data*))
 
-  ;; to permit redefinition of category definitions during development
-  ;; we overwrite most of the indexes/objects that are created as a
-  ;; side-effect of the definition.
   (let ((op-object
          (setf (cat-operations category)
                (make-category-operations :category category))))
@@ -247,7 +272,7 @@
       (instantiates-field
        (decode-category-to-instantiate category instantiates-field)))
         
-    ;; find, index, delete
+    ;; find, index, delete, some special cases
     (decode-index-field category op-object index-field)
 
     ;; override default label when generating rules

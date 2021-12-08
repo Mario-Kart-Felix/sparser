@@ -40,7 +40,7 @@
       ;; the company is entered into the discourse model,
       ;; not the company's name
   :specializes name
-  :index (:permanent
+  :index (:permanent :apply
           :special-case :find find/company-name
                         :index index/company-name
                         :reclaim reclaim/company-name)
@@ -92,12 +92,11 @@
       ;; really only intended for single words, but we
       ;; can adapt
       collect
-      (if
-       (and (individual-p nw) ;; not words like "and"
-                (itypep nw 'name-word))
-      ;; Company terms, countries, ...
-       (bind-dli-variable 'name-of company nw)
-       nw))))
+      (if (and (individual-p nw) ;; not words like "and"
+               (itypep nw 'name-word))
+        ;; Company terms, countries, ...
+        (set-name-of nw company)
+        nw))))
   
 
 
@@ -106,14 +105,13 @@
   (let ((known-aliases (value-of 'aliases company)))
     (if known-aliases
       (tail-cons name known-aliases)
-      (setq company (bind-dli-variable 'aliases (list name) company))))
+      (setq company (bind-variable 'aliases (list name) company))))
   (let* ((sequence (value-of 'sequence name))
          (items (value-of 'items sequence)))
-    (if (null (cdr items)) ;; just one
-      (bind-dli-variable 'name-of company (car items))
-      ;; 'associated-with' each of the items the name
-      )
-    company)) ;; NOT SURE ABOUT THIS RETURN -- NEEDS TO BE CHECKIED IN bind-dli-variable case
+    (when (null (cdr items)) ;; just one
+      ;; link the alias to the company
+      (set-name-of (car items) company))
+    company))
 
 
 (defun make-company-name-from-items (items
@@ -173,10 +171,7 @@
 
 
 (defun map-name-words-to-name (items name)
-  ;; This is hard to imagine doing as psi, and indeed there's nothing
-  ;; unsaturated about the objects involved.
-  (when *do-not-use-psi*
-    (spread-sequence-across-ordinals name items)))
+  (spread-sequence-across-ordinals name items))
 
 
 
@@ -195,10 +190,11 @@
     ;; /// "the Immigration and Naturalization Service" will get
     ;; here rendered as a collection of companies if there's no
     ;; appreciation of "service"
-
     (let ((name (value-of 'name company)))
-      (setq company (mark-company-name-as-taking-the name))
-      company )))
+      ;; we also get here from "the company"
+      (when name
+        (setq company (mark-company-name-as-taking-the name))
+        company ))))
 
 
 

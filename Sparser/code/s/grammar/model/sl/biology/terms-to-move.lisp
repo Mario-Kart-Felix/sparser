@@ -11,19 +11,14 @@ be biology specific, since they aren't. |#
 
 
 
-
+#| moved to modifiers
 (define-adverb "a bit more")
-(define-adverb "even")
+(define-adverb "even") |#
 
 
 (define-adverb "namely")
 
-
-
 (define-adverb "readily")
-
-;; want to force the super-category of "linguistic" to NOT be MODIFIER
-(adj "linguistic" :super abstract)
 
 (noun "route" :super bio-mechanism)
 
@@ -95,7 +90,7 @@ be biology specific, since they aren't. |#
 
 
 (adj "rapid" :super bio-predication)
-(adj "same" :super bio-predication)
+
 
 ;;---- likely to want a different interpretation
 ;;     when the attribute-value "high" is available
@@ -281,21 +276,26 @@ be biology specific, since they aren't. |#
 
 (adj  "exclusive" :super bio-predication)
 
+#| conflicts with direct-control which was deliberately written
+   to avoid conflict with the modifier
 (delete-adj-cfr (resolve "direct"))
-(adj "direct" :super bio-predication)
+(adj "direct" :super bio-predication) |#
 
-(adj "forward" :super bio-predication) ;; added to avoid problem with complex lookup
+;; in dossier/directions.lisp
+;;(adj "forward" :super bio-predication) ;; added to avoid problem with complex lookup
 ;;Error: Comlex -- new POS combination for
 ;; "#<word "forward">:: (ADJECTIVE ADVERB ADVPART NOUN VERB)
+
 (adj "full" :super bio-predication)
+
 
 
 (adj "further" :super bio-predication)
 (define-adverb "further")
 
 
-
-(adj "least" :super bio-predication)
+;; In words/quantifiers.lisp
+;;(adj "least" :super bio-predication)
 
 (delete-adj-cfr (resolve "novel"))
 (adj "novel" :super bio-predication)
@@ -348,40 +348,38 @@ be biology specific, since they aren't. |#
 
 ;;---- other
 
-
-(define-category variant :specializes takes-of-prototype-description
+(define-category variant :specializes variant-on
   ;; was "protein" which is not true, but the most common case
   ;; need to write rules that make the class of the result of "Pak variant"
   ;;  be the class of "Pak" bio-chemical-entity 
   ;; not sure this is the correct term, but intended for things like "forms of ras" 
   :instantiates :self
-  :rule-label takes-of-prototype-description
-  :realization
-    (:noun ("variant" "form")
-))
+  :mixins (takes-of-prototype)
+  :rule-label takes-of-prototype
+  :realization (:noun ("variant" "form")))
 
-;;; These have been moved here to allow state to be a variant
 
-(define-category bio-state :specializes variant
-  :documentation  "not quite right, but it is almost always a protein
+
+(when (or (current-script :biology) ;; i.e. not in Acumen or Fire
+          (current-script :score))
+  
+  (define-category bio-state :specializes variant
+    :documentation  "not quite right, but it is almost always a protein
       for things like activated state"
-  :realization
-    (:noun "state"))
+    :realization (:noun "state"))
+
+  (noun "position" :super residue-on-protein)
+
+  )
 
 
 (noun "example" :super variant)
 
+  
 (noun "homolog" :super variant)
 (def-synonym homolog (:noun "homologue"))
 
-(noun "position" :super residue-on-protein)
 
-(define-category region-of-molecule
-  :specializes molecular-location
-  :binds ((bounds biological))
-  :realization
-    (:noun "region"
-     :between bounds))
 
 
 

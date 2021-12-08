@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-1994,2012-2017 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-1994,2012-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "object"
 ;;;   Module:  "objects;chart:words:"
-;;;  Version:  June 2017
+;;;  Version:  September 2021
 
 ;; 3.0 (6/2/93) changed the object to inherit from label
 ;; 3.1 (7/19) added wrapping data-check on Word-string to catch the
@@ -41,10 +41,6 @@
 (defun word-rules (w)
   (label-rule-set w))
 
-#+ignore
-(defun word-plist (w)
-  (label-plist w))
-
 (defun word-brackets (w)
   (rs-phrase-boundary (word-rules w)))
 
@@ -53,30 +49,44 @@
 ;;; simple predicates
 ;;;-------------------
 
-(defun known-word? (w)
-  (label-rule-set w))
+(defgeneric known-word? (w)
+  (:documentation "This is correct to first-order, but see computations
+    in find-word where there also has to be a shallow semantic definition")
+  (:method ((pname string))
+    (let ((word (resolve pname)))
+      (if (null word)
+        nil
+        (known-word? word))))
+  (:method ((w word))
+    (label-rule-set w)))
 
-(defun unknown-word? (word)
-  ;; Correct to first-order, but see computations in find-word
-  (null (word-rules word)))
+(defgeneric unknown-word? (word)
+  (:method ((pname string))
+    (let ((word (resolve pname)))
+      (if (null word)
+        t
+        (unknown-word? word))))
+  (:method ((w word))
+    (null (label-rule-set w))))
 
 (defun word-mentioned-in-rules? (w)
   (let ((rs (word-rules w)))
-    (when rs
+    (when (and rs (typep rs 'rule-set))
+      ;; whitespace words use the rule-set slot to record whitespace information
       (or (rs-single-term-rewrites rs)
           (rs-right-looking-ids rs)
           (rs-left-looking-ids rs)
           (rs-fsa rs)
           (rs-completion-actions rs)))))
 
-(defun word-with-single-edge-rules? (w)
+(defun word-with-single-edge-rules? (w) ; acumen 10/8/21 64,035
   (let ((rs (word-rules w)))
-    (when rs
+    (when (and rs (typep rs 'rule-set))
       (rs-single-term-rewrites rs))))
 
 (defun defines-phrase-boundaries? (w)
   (let ((rs (word-rules w)))
-    (when rs
+    (when (and rs (typep rs 'rule-set))
       (rs-phrase-boundary rs))))
 
 (defgeneric infer-part-of-speech (word)
@@ -129,6 +139,24 @@
   (write-string ">" stream))
 
 
+(defun princ-word (word &optional (stream *standard-output*))
+  "Called by routines that want the word presented as a string
+rather than as an object. Takes polywords as well as words for
+the convenience of model routines."
+  (if word
+    (if (get-tag :use-symbol-name-when-printing word)
+      (princ
+       (if (polyword-p word)
+         (pw-symbol word)
+         (word-symbol word))
+       stream)
+      (format stream "\"~a\"" (pname word)))
+    (write-string "<word>" stream)))
+
+(defun word-string (word)
+  "Like princ-word, but returns the string instead of printing it."
+  (pname word))
+
 
 
 (defun display-word (word  &optional (stream *standard-output*))
@@ -158,7 +186,6 @@
   ;; can be set to a predictable size.
   ;; Includes the princ conventions for words, e.g. enclosing them
   ;; in double quotes and using the symbol when there's no pname
-
   (let ((pname (word-pname w))
         symbol-string )
     (if (get-tag :use-symbol-name-when-printing w)

@@ -87,7 +87,8 @@
    (adjacencies :initform nil :accessor adjacency-relations))
   (:documentation
    "Provides slots for counting the relations in simple discource
-    modeling"))
+    modeling. The more complex relations developed for Grok that
+    could populate these slots are worked out in analysers/sdmp/"))
 
 
 ;;--- sentence level
@@ -120,7 +121,7 @@
      Treetop count is simple by-product of the e/r calculation."))
 
 (defclass accumulate-items ()
-  ((list :initform nil :accessor items
+  ((items-alist :initform nil :accessor items
     :documentation "Simple list. Items are just pushed onto it
       making them in reverse cronological order."))
   (:documentation "Maintains a simple list or alist. Up to the

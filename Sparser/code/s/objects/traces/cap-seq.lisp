@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-1995,2014  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-1995,2013-2021  David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "cap seq"
 ;;;   Module:  "objects;traces:"
-;;;  Version:  May 2013   
+;;;  Version:  September 2021   
 
 ;; initiated 5/26/93 v2.3. added two more moments 12/17. And more 1/7/94.
 ;; Added traces for "of" in the scan 5/3. Added start/end fns 6/13.
@@ -14,12 +14,17 @@
 (in-package :sparser)
 
 (defparameter *trace-pnf* nil)
-
-(defun trace-pnf ()  ;; for meta-point
+(defun trace-pnf ()
   (setq *trace-pnf* t))
-
 (defun untrace-pnf ()
   (setq *trace-pnf* nil))
+
+(defvar *pnf-creation* nil
+  "For when we introduce new names, people, etc")
+(defun trace-pnf-creation ()
+  (setq *pnf-creation* t))
+(defun untrace-pnf-creation ()
+  (setq *pnf-creation* nil))
 
 
 ;;;---------------
@@ -119,17 +124,22 @@
   (when *trace-pnf*
     (trace-msg "PNF:    there is no initial in front of it")))
 
-(deftrace :pnf/initial (pos)
+(deftrace :pnf/initial (pos final?)
+  ;; checkout-period-for-capseq
   (when *trace-pnf*
-    (trace-msg "PNF:    and there is an initial in front of it.~
-              ~%     continuing the scan with p~A"
-               (pos-token-index pos))))
+    (if final?
+      (trace-msg "PNF: and there is an initial in front of it.~
+                ~%     but it is the EOS period")
+      (trace-msg "PNF: and there is an initial in front of it.~
+                ~%     continuing the scan with p~A"
+                 (pos-token-index pos)))))
 
 (deftrace :pnf/abbreviation ()
   (when *trace-pnf*
     (trace-msg "PNF:    but there was an abbreviation")))
 
 (deftrace :pnf/no-abbreviation ()
+  ;; in checkout-period-for-capseq
   (when *trace-pnf*
     (trace-msg "PNF:    nor was there an abbreviation~
               ~%   Ending the scan")))
@@ -198,7 +208,10 @@
   (when *trace-pnf*
     (trace-msg "PNF Abbreviation check:~
               ~%       \"~A\" is an abbreviation for \"~A\""
-               (word-pname abbrev) (word-pname full))))
+               (word-pname abbrev)
+               (etypecase full
+                 (word (word-pname full))
+                 (category (cat-name full))))))
 
 
 (deftrace :abbrev-check-found-nothing (non-abbrev-word)
@@ -346,6 +359,12 @@
                (pos-token-index pos))))
 
 
+(deftrace :result-of-examine (result)
+    ;; called from Classify-&-record-span
+  (when *trace-pnf*
+    (trace-msg "PNF/classify: Examine returned ~a" result)))
+
+
 ;;;---------
 ;;; Examine
 ;;;---------
@@ -393,6 +412,11 @@
 
 
 
+(deftrace :retrieved-from-name-word (i nw)
+  ;; called from subsequent-reference-off-name-word
+  (when *trace-pnf*
+    (trace-msg "PNF: Retrieved ~a from name-word ~a" i nw)))
+
 (deftrace :found-named-obj-with-name (name object)
   ;; called from find/named-object-with-name
   (when *trace-pnf*
@@ -408,24 +432,24 @@
   ;; called from make/named-object-with-name
   (when *trace-pnf*
     (trace-msg "PNF: made the named object ~a~
-              ~%    from namd ~a" i name)))
+              ~%    from name ~a" i name)))
 
 (deftrace :make-uncategorized-name (name sequence)
   ;; called from make/uncategorized-name
-  (when *trace-pnf*
-    (trace-msg "PNF: make the uncategories named ~a~
+  (when (or *trace-pnf* *pnf-creation*)
+    (trace-msg "PNF: make the uncategorized-named ~a~
               ~%    from the sequence ~a" name sequence)))
 
 (deftrace :found-uncategoried-name (name sequence)
   ;; called from find/uncategorized-name
-  (when *trace-pnf*
-    (trace-msg "PNF: found the uncategories named ~a~
+  (when (or *trace-pnf* *pnf-creation*)
+    (trace-msg "PNF: found the uncategorized-name ~a~
               ~%    given the sequence ~a" name sequence)))
 
 (deftrace :no-uncategorized-name-for (sequence)
   ;; called from find/uncategorized-name
   (when *trace-pnf*
-    (trace-msg "PNF: no uncategorized name for the sequence~
+    (trace-msg "PNF: no uncategorized-name for the sequence~
              ~%     ~a" sequence)))
 
 (deftrace :no-sequence-for-nws (list-of-name-words)
@@ -437,7 +461,7 @@
 
 (deftrace :interpreting-name-as-person (name)
   ;; called from interpret-name-as-person
-  (when *trace-pnf*
+  (when (or *trace-pnf* *pnf-creation*)
     (trace-msg "Interpreting this name as a person:~
               ~%    ~a" name)))
 
@@ -451,7 +475,7 @@
 
 (deftrace :found-existing-referent-for-pn (existing-referent)
   ;; called from establish-referent-of-pn
-  (when *trace-pnf*
+  (when (or *trace-pnf* *pnf-creation*)
     (trace-msg "PNF:  found ~a" existing-referent)))
 
 (deftrace :no-existing-referent-for-pn ()
@@ -462,7 +486,7 @@
 
 (deftrace :made-person-with-name (person name)
   ;; called from make/person-with-name
-  (when *trace-pnf*
+  (when (or *trace-pnf* *pnf-creation*)
     (trace-msg "PNF: made the person ~a~
               ~%    from the name ~a" person name)))
 
@@ -484,7 +508,7 @@
   
 
 
-
+;;------- goes with original network version of PNF
 ;;;--------------------------------------
 ;;; exhaustive trace of the PNF routines
 ;;;--------------------------------------

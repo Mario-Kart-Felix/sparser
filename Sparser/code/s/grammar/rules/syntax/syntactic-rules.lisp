@@ -96,10 +96,18 @@
            :form np
            :referent (:function possessive-np left-edge right-edge))))
 
+
+;; These are pre-determiners -- lets us have multiple 'determiners'
+
 (def-syntax-rule (possessive np) 
            :head :right-edge
            :form np
            :referent (:function possessive-np left-edge right-edge))
+
+(def-syntax-rule (det np) 
+           :head :right-edge
+           :form np
+           :referent (:function determiner-noun left-edge right-edge))
 
 
 ;;--- Partitive NPs
@@ -1204,7 +1212,7 @@
 (loop for sequencer in '(after before during)
    do (eval
        `(def-cfr subordinator (,sequencer which)  ;; "after which"
-          ;; /// subordinator is not a particularly information semantic label
+          ;; /// subordinator is not a particularly informative semantic label
           :form relative-subordinator
           :referent (:function make-relative-subordinator left-referent right-referent))))
 
@@ -1228,13 +1236,17 @@
     :form adjp
     :referent (:function interpret-adverb+adjective left-edge right-edge))
 
+(def-syntax-rule (approximator comparative-adjective) ;; "a bit more stable"
+    :head :right-edge
+    :form adjp
+    :referent (:function interpret-adverb+adjective left-edge right-edge))
+
 ;;--- predicate adjective
 
 #| normally copular adjectives become VPs, but in 
 (5 (P "Therefore, mUbRas is insensitive to GAP–mediated regulation, 
 similar to an oncogenic RasG12V mutation (9).")) 
-
-"similar" is just an adjective
+  "similar" is just an adjective
 |#
 
 (def-syntax-rule (adjective pp)
@@ -1356,7 +1368,9 @@ similar to an oncogenic RasG12V mutation (9)."))
    `(def-syntax-rule (,(car vv) as-comp)
         :head :left-edge
         :form ,(second vv)
-        :referent (:function adjoin-ascomp-to-adjp left-edge right-edge)))
+        :referent (:function adjoin-ascomp-to-vg left-edge right-edge)))
+   ;;/// this used to call adjoin-ascomp-to-adjp but that function
+   ;; is no longer defined. The -to-vp function looks reasonable if short
 
   (eval
    `(def-syntax-rule (,(car vv) prep-comp)
@@ -1469,10 +1483,10 @@ similar to an oncogenic RasG12V mutation (9)."))
   :referent (:function create-partitive-np left-edge right-edge))
 
 ;; another case of specialized handling of "of"
-(def-cfr np (takes-of-prototype-description of)
+(def-cfr np (takes-of-prototype of)
   :form np
-  :referent (:function create-prototype-of-np left-edge right-edge)
-  )
+  :referent (:function create-prototype-of-np left-edge right-edge))
+  
 
 ;; And see above syntax rule (number ,nb) --> number-noun-compound
 

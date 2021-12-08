@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-1995,2011-2018 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-1995,2011-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "new words"
 ;;;   Module:  "objects;chart:words:lookup:"
-;;;  Version:  March 2018
+;;;  Version:  September 2021
 
 ;; 4.0 (9/28/92 v2.3) accomodates changes to tokenizer
 ;; 4.1 (7/16/93) updated field name
@@ -23,17 +23,77 @@
 
 (in-package :sparser)
 
+;;;----------------------------------------
+;;; programmatic word-to-category creation
+;;;----------------------------------------
+
+(defvar *words-added-by-create-category* nil
+  "Accumulator that can be passed through write-word-definitions-to-file")
+
+(defun create-category-from-word (word &key pos)
+  "Invoke the morphology and Comlex information to setup a category
+   for this word just as though we were going through one of the
+   standard routines for establishing unknown words but already
+   have the word to hand. This is called frm create-new-category
+   and handle-prep-if-necessary where we need to expand the vocabulary
+   on the fly."
+  (declare (special *introduce-brackets-for-unknown-words-from-their-suffixes*
+                    *edge-for-unknown-words* *source-of-unknown-words-definition*))
+  (unless (and *introduce-brackets-for-unknown-words-from-their-suffixes*
+               *edge-for-unknown-words*)
+    (error "Category-creating machinery is deliberately turned off"))
+  (unless *comlex-words-primed*
+    (error "Comlex is not loaded"))
+
+  (let ((*complain-about-words-missing-from-comlex* t)
+        (*source-of-unknown-words-definition* :computed)
+        (*incrementally-save-comlex-categories* t)
+        (*comlex-form-output-stream* *standard-output*))
+    (declare (special *complain-about-words-missing-from-comlex*
+                      *source-of-unknown-words-definition*
+                      *incrementally-save-comlex-categories*
+                      *comlex-form-output-stream*))
+    (setq *word-to-be-defined?* word)
+    (unless pos (setq pos 'noun))
+    (pushnew word *words-added-by-create-category*)
+    (let ((comlex-clause (comlex-subcategorization word pos)))
+      (if comlex-clause
+        (case pos
+          (noun (setup-common-noun word comlex-clause nil))
+          (verb (setup-word-based-verb-category word comlex-clause))
+          (otherwise
+           (break "pos = ~a  Not set up yet to handle it" pos)))
+        (let ((morph-keyword (word-morphology word)))
+          (unless morph-keyword ;; move earlier in the chain
+            (setf (word-morphology word) (affix-checker (word-pname word))))                                 
+          (assign-morph-brackets-to-unknown-word word morph-keyword))))))
+
+(defun setup-word-based-verb-category (word comlex-verb-entry)
+  "Given that this feeds handle-prep-if-necessary, we have to return the
+   verb, which will now have a minimal, capital-letter-semantics style
+   category backing it. Uses the same amount of comlex information as
+   unambiguous-comlex-primed-decoder does."
+  ;;/// Next: get transitivity information from the entry
+  (let ((category (setup-verb word comlex-verb-entry)))
+    (tr :required-verb word category)
+    word))
+
+
 
 ;;;-----------------------------------------
 ;;; Cases for what-to-do-with-unknown-words
 ;;;-----------------------------------------
 
-(defparameter *word-to-be-defined?* nil
+(defvar *word-to-be-defined?* nil
   "Provides a pointer for recording routines to notice")
 
 (defparameter *show-word-defs* nil
   "Controls whether we announce when a word goes through make-word
    routine. Only unknown words do that, so it can be a useful trace")
+
+
+
+;; (what-to-do-with-unknown-words :capitalization-digits-&-morphology/or-primed)
 
 (defun make-word/all-properties/or-primed (character-type 
                                            &optional existing-word)
@@ -95,7 +155,7 @@
              (store-word-and-handle-it-later word))
             (morph-keyword
              (assign-morph-brackets-to-unknown-word
-              word morph-keyword))
+              word morph-keyword entry))
             (entry
              (unpack-primed-word word symbol entry))
             (*big-mechanism*
@@ -124,16 +184,14 @@
        (setup-unknown-word-by-default word)))
       
     word ))
-; (what-to-do-with-unknown-words :capitalization-digits-&-morphology/or-primed)
 
 
 
+;; (what-to-do-with-unknown-words :check-for-primed)
 (defun look-for-primed-word-else-all-properties (character-type
                                                  &optional existing-word)
   "Stronger than make-word/all-properties because it looks for an entry
-   in Comlex before doing the 'all-properties' default. Though if the
-   word is capitalized we don't do the Comlex lookup because many name
-   elements correspond to ordinary words and that just confuses things."
+   in Comlex before doing the 'all-properties' default."
   (declare (special *capitalization-of-current-token* 
                     *primed-words* *show-word-defs*))
   
@@ -150,20 +208,30 @@
       (:number
        (establish-properties-of-new-digit-sequence word))
       (:alphabetical
-       (let ((entry (gethash (symbol-name symbol) *primed-words*)))
-         (if entry ;; used to only do it for :lower-case instances
-           (then
-             (tr :make-word/entry entry)
-             (unpack-primed-word word symbol entry))
-           (make-word/all-properties character-type word)))))
+       (setf (word-capitalization word) *capitalization-of-current-token*)
+       (let ((entry (comlex-entry/full word))) ; had been open coded
+         (cond
+           ((and (capitalized word) *pnf-routine*)
+            (store-word-and-handle-it-later word))
+           (entry
+            (tr :make-word/entry entry)
+            (unpack-primed-word word symbol entry))
+           (t
+            (make-word/all-properties character-type word))))))
     word))
-;(what-to-do-with-unknown-words :check-for-primed)
 
 
+
+;; (what-to-do-with-unknown-words :capitalization-digits-&-morphology)
 (defun make-word/all-properties (character-type &optional existing-word)
   "Called from Find-word as one of the  possible values for the function
    Establish-unknown-word, or from look-for-primed-word-else-all-properties
-   if the word didn't have a Comlex entry."
+   if the word didn't have a Comlex entry.
+     Uses the mophological properties of the word to determine what to do
+   for it. 
+     Can be called as the choice of what-to-do-with-unknown-words or as
+   a supplement to another entry point in which case 'existing-word' will
+   have that word."
   (declare (special *capitalization-of-current-token* *show-word-defs*
                     *introduce-brackets-for-unknown-words-from-their-suffixes*))
   (let* ((symbol (make-word-symbol))
@@ -191,14 +259,15 @@
          (tr ::make-word/properties morph-keyword)
 
          (when *introduce-brackets-for-unknown-words-from-their-suffixes*
-           (when morph-keyword
+           (if morph-keyword
              (assign-morph-brackets-to-unknown-word
-              word morph-keyword))))))
+              word morph-keyword)
+             (setup-unknown-word-by-default word))))))
     word ))
-; (what-to-do-with-unknown-words :capitalization-digits-&-morphology)
 
 
 
+;;(what-to-do-with-unknown-words :capitalization-&-digits)
 (defun make-word/capitalization-&-digits (character-type &optional existing-word)
   ;; just like the all-properties version except that it does not
   ;; consider morphology
@@ -216,10 +285,10 @@
              *capitalization-of-current-token*)))
 
     word ))
-;(what-to-do-with-unknown-words :capitalization-&-digits)
 
 
 
+;;(what-to-do-with-unknown-words :make-word/no-properties)
 (defun make-word/no-properties (character-type &optional existing-word)
   ;; just sets up the word, doesn't calculate any of its properties
   (declare (ignore character-type))
@@ -229,7 +298,6 @@
                               :pname  (symbol-name symbol)))))
     (catalog/word word symbol)
     word ))
-;(what-to-do-with-unknown-words :make-word/no-properties)
 
 
 

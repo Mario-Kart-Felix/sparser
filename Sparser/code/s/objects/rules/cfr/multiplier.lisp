@@ -127,8 +127,20 @@ then we immediately return from the call without creating an edge.
              '(cellular-location cell-type cell-line
                protein transcription-factor ; protein
                protein-domain binding-domain ; protein-domain
+               molecule ; "Ct" in bio;other-defs-from-reach
                fiscal-quarter ; core/time/fiscal
                amino-acid ; "his"
+               timezone ; dossiers/timezones, masks some state names - "CT"
+               )))
+      (:acumen ;; really should do something more clever
+       (setq *rule-categories-to-ignore*
+             '(cellular-location cell-type cell-line
+               protein transcription-factor ; protein
+               protein-domain binding-domain ; protein-domain
+               molecule ; "Ct" in bio;other-defs-from-reach
+               fiscal-quarter ; core/time/fiscal
+               amino-acid ; "his"
+               timezone ; dossiers/timezones, masks some state names - "CT"
                )))
       (:nothing
        (setq *rule-categories-to-ignore* nil)))))
@@ -215,9 +227,9 @@ then we immediately return from the call without creating an edge.
 
 
 (defun enable-cfr (cfr)
-  ;; removes the rules entry in the hash table, but doesn't otherwise
-  ;; affect it, allowing it to later be enabled again by putting the
-  ;; entry back
+  "Intended to put back a rule that was diabled. Runs a copy of
+   the code that integrates any binary rle into the multiplication
+   table"
   (let ((left-id
          (car (rs-right-looking-ids
                (rule-set-for (first (cfr-rhs cfr))))))

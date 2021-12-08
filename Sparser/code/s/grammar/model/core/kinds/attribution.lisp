@@ -1,9 +1,9 @@
 ;;; -*- Mode: Lisp; Syntax: Common-lisp; Package: sparser; -*-
-;;; Copyright (c) 2010-2020 David D. McDonald 
+;;; Copyright (c) 2010-2021 David D. McDonald 
 ;;;
 ;;;            "attribution"
 ;;;   Module:  "model;core:kinds:"
-;;;  version:  December 2020
+;;;  version:  October 2021
 
 (in-package :sparser)
 
@@ -53,17 +53,18 @@ a 'subject', e.g. "southern Chinese girls are never tall"
 ;;; the super-categories of the per-attribute categories
 ;;;------------------------------------------------------
 
-;;--- "size", "color"
-;;
 (define-category related-thing :specializes quality ;; better name?
-  :documentation  "A relation between the 'owner' and some other entity or event (perdurant). 
-    The relation is typically specified with context, but can be temporally localized, or perhaps
-    spatially localized -- e.g. 'the risk of COVID-19 in Massachusetts in January 2021'"
+  :documentation "A relation between the 'owner' and some other entity
+    or event (perdurant).  The relation is typically specified with
+    context, but can be temporally localized, or perhaps spatially
+    localized -- e.g. 'the risk of COVID-19 in Massachusetts in
+    January 2021'"
   :mixins (temporally-localized)
   :binds ((owner))
-  :realization (:of owner)
-  )
+  :realization (:of owner))
 
+;;--- "size", "color"
+;;
 (define-category attribute :specializes related-thing
   :documentation "Represents the identity of the attribute
  as such. Corresponds to Dolce's 'quality type'. Refering to
@@ -71,20 +72,19 @@ a 'subject', e.g. "southern Chinese girls are never tall"
  instance of this category. Provides a 'coat-hook'
  for recording ancilary information that helps in parsing,
  notably the variable."
-  :binds ((var :primitive lambda-variable)
-          ))
+  :binds ((var :primitive lambda-variable)))
 
 (define-category scalar-attribute
   :specializes attribute
   :mixins (scalar)
   :binds ((comparative :primitive category)
           (superlative :primitive category)
-          (for-grouping top)
-          (per-grouping top)
-          (by-grouping top))
+          (for-grouping)
+          (per-grouping)
+          (by-grouping))
   :realization (:for for-grouping
-               :per per-grouping
-               :by by-grouping)
+                :per per-grouping
+                :by by-grouping)
   :documentation "Calling this 'scalar' is to say that
  its values are arranged along some dimension, in this
  case the dimention is determined by the attribute")

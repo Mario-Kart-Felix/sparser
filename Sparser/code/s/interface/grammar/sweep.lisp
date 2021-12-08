@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2015-2020 David D. McDonald -- all rights reserved
+;;; copyright (c) 2015-2021 David D. McDonald -- all rights reserved
 ;;;
 ;;;      File:   "sweep"
 ;;;    Module:   interface/grammar/
-;;;   Version:   April 2020
+;;;   Version:   August  2021
 
 ;; Routines for sweeping down through the structure of Krisp referents.
 ;; Initiated 1/11/15 with code from December. 
@@ -25,7 +25,8 @@
 (defun strip-model-descriptions (list)
   "Called by identify-relations to pass the raw-entities and raw-relations
    that are collected by collect-model and pass them through a filter
-   dropping out types of individuals that aren't relevant."
+   dropping out types of individuals that aren't relevant.
+   The original list was created by pushing so this puts in text order."
   (let (  clean-items  )
     (dolist (item list)
       (when item ;; some are null
@@ -43,39 +44,39 @@
            (push-debug `(,item))
            (break "New type of item: ~a~%~a"
                   (type-of item) item)))))
-    ;; The original list was created by pushing
-    ;; so this puts in text order. 
     clean-items))
 
 (defun strip-model-description (tree)
-  ;; it's a tree, e.g. 
+  "Walks down a cons tree to collect all the individuals.
+   Returns them as a list."
+  ;; e.g. 
   ;; (agent
-  ;; (#<pathway 4020>
-  ;;  (modifier
-  ;;   (#<protein-pair 4030> (right #<human-protein-family "MAPK" 397>)
-  ;;    (left #<human-protein-family "Ras" 401>)))))
-  (push-debug `(,tree))
-  (nconc
-   (strip-model-description1 (car tree))
-   (strip-model-description1 (cdr tree))))
+  ;;  (#<pathway 4020>
+  ;;    (modifier
+  ;;      (#<protein-pair 4030>
+  ;;          (right #<human-protein-family "MAPK" 397>)
+  ;;          (left #<human-protein-family "Ras" 401>)))))
+  (flet ((strip-model-description1 (item)
+           "returns a list or nil"
+           (typecase item
+             (symbol nil)
+             (individual `(,item))
+             (category nil)
+             (lambda-variable nil) ;; ??
+             (cons
+              (strip-model-description item))
+             (number)
+             (string)
+             (word)
+             (edge) ;; in sequence of number-sequence
+             (otherwise
+              (push-debug `(,item))
+              (break "New case to strip: ~a~%~a"
+                     (type-of item) item)))))
+    (nconc ; drops the nil's
+     (strip-model-description1 (car tree))
+     (strip-model-description1 (cdr tree)))))
 
-(defun strip-model-description1 (item)
-  ;; return a list or nil 
-  (typecase item
-    (symbol nil)
-    (individual `(,item))
-    (category nil)
-    (lambda-variable nil) ;; ??
-    (cons
-     (strip-model-description item))
-    (number)
-    (string)
-    (word)
-    (edge) ;; in sequence of number-sequence
-    (otherwise
-     (push-debug `(,item))
-     (break "New case to strip: ~a~%~a"
-            (type-of item) item))))
 
 
 
@@ -86,7 +87,9 @@
 (defun filter-list-of-items-for-relevance (list)
   "Called by filter-for-relevant-mentions (in content-methods).
    The list is the dedup'd sentence-mentions in a sentence,
-   and we collect individuals. Feeds into aggregate-terms"
+   and we collect individuals. Feeds into aggregate-terms
+   Relevance is ultimately determined by the list that is used
+   to control what goes on the discourse history ('dh')."
   (loop for item in list
      when (relevant-type-of-individual item)
      collect item))
@@ -109,7 +112,7 @@
   (:method ((e edge)) nil)
   (:method ((n number)) nil)
   (:method ((item T))
-    (warn-or-error "'~a' of type ~a passed to relevant type filter"
+    (warn-or-error "'~a' of type ~a passed to relevant-type filter"
           item (type-of item))
     nil))
 
@@ -230,42 +233,6 @@
 (defmethod collect-model ((c category)) nil) ;;`(,c))
 ;; anything else to be dropped on the floor?
 
-;;(defparameter *original-collect-mode-recursion-on-individuals* t)
-
-(defvar *categories-seen-by-collect-model* nil)
-(define-per-run-init-form
-    (setq *categories-seen-by-collect-model* nil))
-
-(defgeneric filter-bindings-by-category (i)
-  (:documentation "For selected categories, remove certain bindings
-    from the recursive collection walk over bind values.
-    Returns the list of bindings to use.")
-  (:method ((i individual))
-    ;; Evolve into eql signatures if this starts to get large
-    (let* ((i-cat (cat-name (itype-of i)))
-           (bindings (indiv-binds i))
-           (redundant (redundant-bindings i i-cat)))
-      (push i-cat *categories-seen-by-collect-model*)
-      (if redundant
-        (suppress-bindings bindings redundant)
-        bindings))))
-
-(defun redundant-bindings (i category-name)
-  "When we are tallying what kinds of individuals were encountered
-   in a document we get a skewed result if we also include normal
-   'parts' of this individuals. Returns a list of variables whose
-   bindings should be suppressed from a count, depending on the
-   category of the individual."
-  (labels ((find-var (name i)
-             "Return the specific lambda-variable object with
-            this name for the category of this individual"
-             (find-variable-for-category name i))
-           (map-names (list-of-names)
-             (loop for n in list-of-names collect (find-var n i))))
-    (case category-name
-      (company (map-names '(name)))
-      )))
-
 
 (defmethod collect-model ((i individual))
 
@@ -333,12 +300,57 @@
       (protein-family ;; no longer use bio-family
        (push (list var-name value)
              objects))
+
+      (prop-motif) ;; ignore
+
       (otherwise
        (push (list var-name (collect-model value))
              objects)))
 
     objects))
 
+
+;;(defparameter *original-collect-mode-recursion-on-individuals* t)
+
+(defvar *categories-seen-by-collect-model* nil)
+(define-per-run-init-form
+    (setq *categories-seen-by-collect-model* nil))
+
+(defgeneric filter-bindings-by-category (i)
+  (:documentation "For selected categories, remove certain bindings
+    from the recursive collection walk over bind values.
+    Returns the list of bindings to use.")
+  (:method ((i individual))
+    ;; Evolve into eql signatures if this starts to get large
+    (let* ((i-cat (cat-name (itype-of i)))
+           (bindings (indiv-binds i))
+           (redundant (redundant-bindings i i-cat)))
+      (push i-cat *categories-seen-by-collect-model*)
+      (if redundant
+        (suppress-bindings bindings redundant)
+        bindings))))
+
+(defun redundant-bindings (i category-name)
+  "When we are tallying what kinds of individuals were encountered
+   in a document we get a skewed result if we also include normal
+   'parts' of this individuals. Returns a list of variables whose
+   bindings should be suppressed from a count, depending on the
+   category of the individual."
+  (labels ((find-var (name i)
+             "Return the specific lambda-variable object with
+            this name for the category of this individual"
+             (find-variable-for-category name i))
+           (map-names (list-of-names)
+             (loop for n in list-of-names collect (find-var n i))))
+    (case category-name
+      (company (map-names '(name)))
+      (month (map-names '(name next previous number-of-days-position-in-year)))
+      (year (map-names '(name value year-of-century)))
+      (date (map-names '(year day month)))
+      (number (map-names '(value)))
+      (money (map-names '(currency number)))
+      (denomination/money '(name symbol))
+      )))
 
 ;;;--------------------------------------------------------------------
 ;;; collecting sentences & new vocabulary automatically from a passage
@@ -355,7 +367,7 @@
 (defvar *from-BigMech-default* nil)
 (defvar *from-no-morph-default* nil)
 (defvar *from-morphology* nil)
-;; *bio-entity-strings* is in analyzers/psp/patterns/driver.lisp
+(defvar *from-computation* nil)
 (defvar *first-names* (make-hash-table :size 5000 :test #'equalp))
 (defvar *last-names* (make-hash-table :size 5000 :test #'equalp))
 
@@ -365,7 +377,9 @@
         *from-BigMech-default* nil
         *from-no-morph-default* nil
         *from-morphology* nil
+        *from-computation* nil
         *bio-entity-strings* (list *bio-entity-initial-string*)
+        ;; *bio-entity-strings* is in analyzers/psp/patterns/driver.lisp
         ))
 
 (defun display-word-accumulator-tallies (&optional (stream *standard-output*))
@@ -373,19 +387,20 @@
                   ~% ~a deduced from their morphology~
                   ~% ~a added by Big Mechanism default~
                   ~% ~a added with default setup~
-                  ~% ~a added from no-space operations~%~%"
+                  ~% ~a added from no-space operations~
+                  ~% ~a added by computing them~%~%"
           (length *from-comlex*)
           (length *from-morphology*)
           (length *from-BigMech-default*)
           (length *from-no-morph-default*)
-          (1- (length *bio-entity-strings*))))
+          (1- (length *bio-entity-strings*))
+          (length *from-computation*)))
 
 #| make-word/all-properties/or-primed => objects/chart/words/lookup/new-words
-The real call is to establish-unknown-word, which gets set by the switch
-call what-to-do-with-unknown-words according to what protocol 
-we're using in the switch settings. The precursor feeder routines are
-find-word, really-known-word?, and word-has-associated-category who encounter
-unknown words.|#
+The real call is to establish-unknown-word, which gets set by the 
+call to what-to-do-with-unknown-words (which dispatches on the protocol 
+we're using. The precursor feeder routines are find-word, really-known-word?, 
+and word-has-associated-category who encounter unknown words.|#
 
 (defun add-new-word-to-catalog (word source &optional instance-string)
   "Called as part of cataloging any new word. The 'source' encodes
@@ -401,13 +416,17 @@ unknown words.|#
  "race" "save" "segment" "sell" "shot" "sin" "sip" "ski" "smooth" "spike" "spin" "star" "str"
                    "stud" "sun" "sup" "thread" "tower" "trip" "usher" "wild" "win")
                  :test #'equal)
-       (if instance-string
+       ;;??? what is the function of this list -- and the warnings ??
+       #+ignore(if instance-string
            (warn "New comlex verb ~s with lemma ~s " instance-string word)
            (warn "New comlex verb ~s " word)))
      (pushnew word *from-comlex*))
 
     (:BigMech-default ;; handle-unknown-word-as-bio-entity
      (pushnew word *from-BigMech-default*))
+
+    (:computed
+     (pushnew word *from-computation*))
     
     (:default ;; setup-unknown-word-by-default -- no mophology information
      ;; will be redundantly listed in *from-morphology*
@@ -501,18 +520,18 @@ unknown words.|#
             (when (or (> (hash-table-count *first-names*) 0)
                       (> (hash-table-count *last-names*) 0))
               (setq *fnames*
-                    (loop for w in pnames when
-                            (and (gethash (pname w) *first-names*)
+                    (loop for w in pnames
+                       when (and (gethash (pname w) *first-names*)
                                  (not (equal (pname w)
                                              (string-downcase (pname w))))
                                  (not (< (length (pname w)) 3)))
-                          collect w))
+                       collect w))
               (setq *lnames*
-                    (loop for w in pnames when
-                            (and (gethash (pname w) *last-names*)
+                    (loop for w in pnames
+                       when (and (gethash (pname w) *last-names*)
                                  (not (equal (pname w)
                                              (string-downcase (pname w)))))
-                          collect w))
+                       collect w))
               (setq pnames (loop for w in pnames
                                  unless (or (gethash (pname w) *first-names*)
                                             (gethash (pname w) *last-names*))
@@ -524,14 +543,14 @@ unknown words.|#
                                    out)
               (write-list-to-param (format nil "~a-All-Lower" var-name)
                                    (loop for w in pnames
-                                         when (equal (pname w) (string-downcase (pname w)))
-                                         collect w)
+                                      when (equal (pname w) (string-downcase (pname w)))
+                                      collect w)
                                    out)
               (write-list-to-param (format nil "~a-MixedCase" var-name)
                                    (loop for w in pnames
-                                         unless (or (equal (pname w) (string-downcase (pname w)))
-                                                    (equal (pname w) (string-upcase (pname w))))
-                                         collect w)
+                                      unless (or (equal (pname w) (string-downcase (pname w)))
+                                                 (equal (pname w) (string-upcase (pname w))))
+                                      collect w)
                                    out)
               (write-list-to-param "FirstNames" *fnames* out)
               (write-list-to-param "LastNames" *lnames* out)))
@@ -548,22 +567,22 @@ unknown words.|#
                   (if (null *from-no-morph-default*)
                       *from-morphology*
                       (loop for word in *from-morphology*
-                            unless (memq word *from-no-morph-default*)
-                            collect word)))
+                         unless (memq word *from-no-morph-default*)
+                         collect word)))
                  (pnames (loop for word in (sort-words minus-default)
-                               collect (word-pname word)))
+                            collect (word-pname word)))
                  (var-name (tailored-string 'morph)))
             (format out "~&~%;; ~a extracted by morphology~%" (length pnames))
             (write-list-to-param var-name pnames out))
       
           (let ((pnames (loop for word in (sort-words *from-no-morph-default*)
-                              collect (word-pname word)))
+                           collect (word-pname word)))
                 (var-name (tailored-string 'defaulted)))
             (format out "~&~%;; ~a extracted with default mophology~%" (length pnames))
             (write-list-to-param var-name pnames out))
 
           (let ((pnames (loop for word in (sort-words *from-comlex*)
-                              collect (word-pname word)))
+                           collect (word-pname word)))
                 (var-name (tailored-string 'comlex)))
             (format out "~&~%;; ~a extracted from Comlex~%" (length pnames))
             (write-list-to-param var-name pnames out))))
@@ -669,9 +688,14 @@ unknown words.|#
     (error (e)
       (format t "~&Error in dumping unknown word set: ~a, Error is: ~a~%" name e))))
 
+
 (defun write-list-to-param (param-name list stream)
   (format stream
-          "~%~%(defparameter ~a~%    (remove-duplicates~%      (append ~%         (when (boundp '~a) (symbol-value `~a))~%         '"
+          "~%~%(defparameter ~a~
+             ~%    (remove-duplicates~
+             ~%      (append~
+             ~%         (when (boundp '~a) (symbol-value `~a))~
+             ~%         '"
           param-name param-name param-name)
   (pprint list stream)
   #+gnore
@@ -685,8 +709,7 @@ unknown words.|#
           (json-relative-pathname (decoded-file file-handle))
           file-handle)
   (pprint (second items) stream)
-  (format stream ")")
-  )
+  (format stream ")"))
 
 ;;;------------------------
 ;;; sweeping for sentences

@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2019-2020 David D. McDonald -- all rights reserved
+;;; copyright (c) 2019-2021 David D. McDonald -- all rights reserved
 ;;;
 ;;;     File:  "content-actions"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  September 2020
+;;;  Version:  August 2021
 
 #| Created 8/27/19 to move general action out of content-methods.lisp
 and make that file easier to understand. |#
@@ -35,9 +35,11 @@ and make that file easier to understand. |#
     (let ((*current-paragraph* p))
       (declare (special *current-paragraph*))
       (when *run-aggregation-after-action*
-        (aggregate-bio-terms p))
+        (when (typep (contents p) 'aggregated-bio-terms)
+          (aggregate-bio-terms p)))
       (assess-sentence-analysis-quality p)
       (collect-text-characteristics p)
+      (collect-noted-items p)
       (unless *debugging-document-structure*
         (make-mentions-long-term))))) ; zero's the list in the lattice
 
@@ -61,20 +63,30 @@ and make that file easier to understand. |#
       (declare (special *section-of-sections*))
       (do-section-level-after-actions ss))))
 
-(defmethod after-actions ((a article))
-  (when *apply-document-after-actions*
-    (let ((*current-article* a))
-      (declare (special *current-article*))
-      (do-section-level-after-actions a)
-      (consolidate-aggregations a))))
-
 (defun do-section-level-after-actions (s)
   "Actions taken by everything about the level of a paragraph"
   (summarize-parse-performance s)
   (aggregate-text-characteristics s)
-  ;;(add-bio-term-counts s)
-  ;;(sort-bio-terms s (contents s))
+  (when (typep (contents s) 'aggregated-bio-terms)
+    (add-bio-term-counts s)
+    (sort-bio-terms s (contents s)))
+  (when (typep (contents s) 'accumulate-items)
+    (aggregate-noted-items s))
   s)
+
+(defmethod after-actions ((a article))
+  (when *apply-document-after-actions*
+    (let ((*current-article* a))
+      (declare (special *current-article*))
+      (summarize-parse-performance a)
+      (aggregate-text-characteristics a)
+      (when (typep (contents a) 'aggregated-bio-terms)
+        (consolidate-aggregations a))
+      (when (typep (contents a) 'accumulate-items)
+        (aggregate-noted-items a)
+        (consolidate-notes a)
+        (apply-context-predicates a))
+      a)))
 
 
       
@@ -162,7 +174,7 @@ and make that file easier to understand. |#
      if that has not already been done. 
      Called by the read-from-document for each element type."))
 
-(defmethod set-document-index (element index)
+(defmethod set-document-index (element index) ;; "T" case
   (declare (ignore element index)))
 
 (defmethod set-document-index ((a article) index)
@@ -190,9 +202,6 @@ and make that file easier to understand. |#
   (unless (toc-index s)
     (let* ((parent (parent s))
            (parent-toc (toc-index parent)))
-      #+ignore(unless parent-toc
-        (lsp-break "Null toc in parent ~a of ~a"
-                   parent s))
       (setf (doc-index s) index)
       (setf (toc-index s)
             (format nil "~a.~a" parent-toc index)))))
@@ -209,9 +218,6 @@ and make that file easier to understand. |#
   (unless (toc-index p)
     (let* ((parent (parent p))
            (parent-toc (toc-index parent)))
-      #+ignore(unless parent-toc
-        (lsp-break "Null toc in parent ~a of ~a"
-                   parent p))
       (setf (doc-index p) index)
       (setf (toc-index p)
             (format nil "~a.p~a" parent-toc index)))))
@@ -223,9 +229,6 @@ and make that file easier to understand. |#
   (unless (toc-index p)
     (let* ((parent (parent p))
            (parent-toc (toc-index parent)))
-      #+ignore(unless parent-toc
-        (lsp-break "Null toc in parent ~a of ~a"
-                   parent p))
       (setf (doc-index p) index)
       (setf (toc-index p)
             (format nil "~a.~a" parent-toc index)))))
@@ -234,9 +237,6 @@ and make that file easier to understand. |#
   (unless (toc-index s)
     (let* ((parent (parent s))
            (parent-toc (toc-index parent)))
-      #+ignore(unless parent-toc
-        (lsp-break "Null toc in parent ~a of ~a"
-                   parent s))
       (setf (doc-index s) index)
       (setf (toc-index s)
             (format nil "~a.s~a" parent-toc index)))))
@@ -245,8 +245,8 @@ and make that file easier to understand. |#
 (defun location-in-article-of-current-sentence ()
   "Looks up the sentence we are presently working on
   and returns its document index. This will always work
-  provided we do the usual initializations: creating document
-  objects for even the simplest analyses"
+  provided we do the usual initializations, i.e. creating
+  document objects for even the simplest analyses"
   ;; previously returned nil if *reading-populated-document*
   ;; was nil.
   (let ((s (identify-current-sentence t)))
@@ -311,7 +311,21 @@ and make that file easier to understand. |#
       (if (= n 1)
         s1
         (nth-next s1 n)))))
-      
+
+
+
+;;;-----------------------------------
+;;; printing simple lists of entities
+;;;-----------------------------------
+
+;;(defgeneric print-entity-list (list &key stream count index?)
+;;  )
+
+(defun pp-entity-list (list &key stream count index?)
+  "The list will be objects of the same type, so dispatch on that
+ and collect the print forms to use. 'Count' will limit how many
+ we present. 'Index? will add numbers for nth-based access."
+  )
 
 
 ;;;------------------------------
@@ -321,7 +335,6 @@ and make that file easier to understand. |#
 (defvar *print-bio-terms* t
   "Rebind to nil to block including the bio-terms in the
    summary-document-stats")
-
 
 (defgeneric summary-document-stats (document-element &optional stream)
   (:documentation "Principally for information while exploring.
@@ -339,7 +352,7 @@ and make that file easier to understand. |#
 
 (defun show-parse-performance (doc-element &optional (stream *standard-output*))
   "Report the crude parse-quality stats for this particular element"
-  (declare (special *readout-segments-inline-with-text*))
+  (declare (special *readout-segments-inline-with-text* *show-article-progress*))
   (let ((content (contents doc-element)))
     (if (not (typep content 'sentence-parse-quality))
       (format stream "~a does not record parse quality" doc-element)
@@ -350,10 +363,73 @@ and make that file easier to understand. |#
           ((typep doc-element 'article)
            (format stream "~&Parsing coverage: ~a (1 edge), ~a (2-5), ~a (> 5)~%"
                    great medium horrible))
+          ((typep doc-element 'paragraph)
+           (when *show-article-progress*
+             (format  stream "~&~a, ~a, ~a~%" great medium horrible)))
           (*readout-segments-inline-with-text*
            ;; proxy for with-total-quiet
-           (format stream "~&~%~%")))))))
+           (format stream "~&~%")))))))
 
+
+;;--- notes, word-spotting
+
+(defun show-noted-categories (document-element &optional detail? (stream *standard-output*))
+  (declare (special *abbreviated*))
+  (let ((group-instances (items (contents document-element))))
+    (if *abbreviated*
+      (let ((index 0))
+        (loop for group in group-instances
+           do (progn
+                (format stream "~a: ~a  " (name group) (group-count group))
+                (when (= 5 (incf index)) (then (terpri stream) (setq index 0))))))
+      (loop for i in group-instances
+         ;; one per-line
+         do (summarize-note-group i stream)))))
+
+(defun summarize-note-group (group stream)
+  (format stream "~&~a: ~a" (name group) (group-count group)))
+
+
+(defun show-motif-term-context (&optional (stream *standard-output*))
+  (declare (special *germaine-spotter-group-instances* *abbreviated*))
+  (unless *germaine-spotter-group-instances*
+    (format stream  "~&No motif triggers in article~%"))  
+  (when *germaine-spotter-group-instances*
+    (if *abbreviated*
+      (show-abbreviated-motif-edge-contexts stream)
+      (loop for group in *germaine-spotter-group-instances*
+         do (show-motif-edge-contexts group stream)))))
+
+(defgeneric show-motif-edge-contexts (group &optional stream)
+  (:method ((group note-group-instance) &optional stream)
+    (unless stream (setq stream *standard-output*))
+    (format stream "~&~%For ~a~%" (name group))
+    (let ((entries (note-instances group)))
+      (loop for note-entry in entries
+         do (show-edge-records note-entry)))))
+
+(defgeneric show-abbreviated-motif-edge-contexts (&optional stream)
+  (:documentation "Gets data for the whole set of germaine groups
+    and reports it compactly.")
+  (:method (&optional stream)
+    (unless stream (setq stream *standard-output*))
+    (multiple-value-bind (configurations
+                          record-count categorized-count
+                          group-count uncategoried-records)
+        (edge-record-summary)
+      (format stream "~&Functional categorizations for ~a out of ~a instances~
+                      ~%   ~{~a  ~}"
+              categorized-count
+              record-count
+              configurations)
+      (when uncategoried-records
+        (format stream "~&Uncategorized instances:")
+        (loop for record in uncategoried-records
+             do (report-edge-record record stream))))))
+
+
+
+;;--- bio-terms
 
 (defgeneric display-top-bio-terms (document-element &optional stream)
   (:documentation "Called as part of summary-document-stats on any article.

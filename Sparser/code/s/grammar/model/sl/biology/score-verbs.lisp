@@ -449,7 +449,9 @@
        (IN top)
        (WITH top)
        (AT top))
-     :realization (:verb  "assist" :s SUBJECT :o OBJECT :on ON :in IN :with WITH :at AT))
+      :realization (:verb  "assist"
+                    :noun "assist" ;; as in hockey or other sports
+                    :s SUBJECT :o OBJECT :on ON :in IN :with WITH :at AT))
 
 (define-category assure :specializes comlex-verb
      :binds
@@ -1444,8 +1446,10 @@
        (INTO top))
      :realization (:verb  "compound" :s SUBJECT :o OBJECT :with WITH :into INTO))
 
-(define-category comprehend :specializes comlex-verb
-     :realization (:verb  "comprehend" :s SUBJECT :o OBJECT))
+(define-category comprehend
+ :specializes perdurant
+ :mixins (comlex-verb)
+ :realization (:verb  "comprehend" :s subject :o object))
 
 (define-category comprise :specializes comlex-verb
      :binds
@@ -1752,6 +1756,7 @@
       ((FOR top))
      :realization (:verb  "criticize" :s SUBJECT :o OBJECT :for FOR))
 
+#+ignore ;; conflicts with movement verb definition of "cross"
 (define-category cross :specializes comlex-verb
      :binds
       ((AGAINST top)
@@ -1871,8 +1876,7 @@
       ((TO top))
      :realization (:verb  "decelerate" :s SUBJECT :to TO))
 
-(define-category decide :specializes comlex-verb
-     :realization (:verb  "decide" :s SUBJECT))
+;; get "decide" from things
 
 (define-category declare :specializes comlex-verb
      :realization (:verb  "declare" :s SUBJECT :o OBJECT))
@@ -2984,7 +2988,25 @@
        (UPON top)
        (|OFF OF| top))
      :realization (:verb ( "fall"  :TENSED/SINGULAR "falls" :PAST-TENSE "fell")
- :s SUBJECT :o OBJECT :to TO :with WITH :on ON :in IN :at AT :before BEFORE :under UNDER :for FOR :among AMONG :upon UPON :|OFF OF| |OFF OF|))
+                         :s SUBJECT :o OBJECT :to TO :with WITH :on ON :in IN :at AT :before BEFORE
+                         :under UNDER :for FOR :among AMONG :upon UPON :|OFF OF| |OFF OF|))
+#|
+sp> (find-simple-comlex-prepositions "fall")
+("before" "under" "for" "among" "p-dir" "upon" "off of")
+
+sp> (comlex-entry "fall")
+((verb (:tensed/singular "falls" :infinitive "fall" :past-tense "fell")
+  (:subc
+   ((nunitp-to-range) (extrap-to-np-s)
+    (part :adval
+     ("to" "through" "behind" "apart" "back" "off" "out" "over" "open"))
+    (part-pp :adval ("forward" "down" "in" "out" "back" "behind" "apart") :pval
+     ("to" "with" "on" "in" "at"))
+    (intrans) (np-pred) (adjp-pred)
+    (pp :pval ("before" "under" "for" "among" "p-dir" "upon" "off of")))
+   :features ((vmotion))))
+ (noun (:features ((ntime1)))))
+|#
 
 (define-category fashion :specializes comlex-verb
      :binds
@@ -3216,6 +3238,7 @@
        (ON top))
      :realization (:verb  "fold" :s SUBJECT :o OBJECT :in IN :into INTO :on ON))
 
+#+ignore ;; conflicts with movement verb
 (define-category follow :specializes comlex-verb
      :binds
       ((THROUGH top)
@@ -3223,6 +3246,7 @@
        (WITH top)
        (ON top))
      :realization (:verb  "follow" :s SUBJECT :o OBJECT :through THROUGH :to TO :with WITH :on ON))
+
 
 (define-category foot :specializes comlex-verb
      :realization (:verb  "foot" :s SUBJECT :o OBJECT))
@@ -3453,9 +3477,7 @@
        (|OUT OF| top))
      :realization (:verb  "glimpse" :s SUBJECT :o OBJECT :from FROM :in IN :|OUT OF| |OUT OF|))
 
-(define-category go :specializes comlex-verb
-     :realization (:verb ( "go"  :TENSED/SINGULAR "going" :PAST-TENSE "went")
- :s SUBJECT))
+;; "go" moved to verbs dossier
 
 (define-category gong :specializes comlex-verb
      :realization (:verb  "gong" :s SUBJECT :o OBJECT))
@@ -5317,12 +5339,12 @@
 (define-category plague :specializes comlex-verb
      :realization (:verb  "plague" :s SUBJECT :o OBJECT))
 
+
 (define-category plan :specializes comlex-verb
-     :binds
-      ((ON top)
-       (FOR top))
-     :realization (:verb ( "plan"  :TENSED/SINGULAR "plans" :PRESENT-PARTICIPLE "planning" :PAST-TENSE "planned")
- :s SUBJECT :o OBJECT :on ON :for FOR))
+     :binds ((on top)
+             (for top))
+     :realization (:verb ( "plan"  :tensed/singular "plans" :present-participle "planning" :past-tense "planned")
+                   :s subject :o object :on on :for for))
 
 ;;; found existing category PLAY in #P"SPARSER:DOSSIERS;VERBS.LISP"
 
@@ -8073,6 +8095,7 @@
        (IN top))
      :realization (:verb  "train" :s SUBJECT :o OBJECT :on ON :to TO :for FOR :in IN))
 
+#+ignore ;; conflicts with movement verb
 (define-category travel :specializes comlex-verb
      :mixins (with-p-dir)
      :binds
@@ -8141,6 +8164,7 @@
        (FOR top))
      :realization (:verb  "try" :s SUBJECT :o OBJECT :on ON :for FOR))
 
+#+ignore ;; conflicts with movement verb
 (define-category turn :specializes comlex-verb
      :binds
       ((ALONG top)

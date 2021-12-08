@@ -9,11 +9,14 @@
 
 (defparameter *person-role-names*
   '(
-
+    "analyst"
+    "author"
+ 
     "entrepreneur"
     "founder"
     "co-founder"
     "boss"
+    "shareholder"
     
     "candidate"
     "individual"   ; "Individuals with HIV"
@@ -34,7 +37,6 @@
     
     ;; medical
     "patient"
-    
     "doctor"
     "nurse"
     "physician"
@@ -45,7 +47,7 @@
     ))
 
 #| These too? 
-   outlier  "Ninety-one couples" "The authors"
+   outlier  "Ninety-one couples"
 |#
 
 (defun instantiate-person-roles ()

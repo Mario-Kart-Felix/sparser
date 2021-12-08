@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2013-2020 David D. McDonald -- all rights reserved
+;;; copyright (c) 2013-2021 David D. McDonald -- all rights reserved
 ;;;
 ;;;     File:  "content-methods"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  April 2020
+;;;  Version:  November 2021
 
 ;; Created 5/12/15 to hold the container mixings and such that need
 ;; to have the document model elements already defined so they can
@@ -80,11 +80,12 @@
   the sentences of the paragraph and distribute them
   into buckets (slots on the content object) at whatever
   degree of delicacy seems the most useful."
-  (let ((sentences (sentences-in-paragraph p)))
-    ;;/// something should attend to the topic sentence
-    (dolist (s sentences)
-      (aggregate-sentence-bio-terms s p)
-      (sort-bio-terms p (contents p)))))
+  (when (typep (contents p) 'aggregated-bio-terms)
+    (let ((sentences (sentences-in-paragraph p)))
+      ;;/// something should attend to the topic sentence
+      (dolist (s sentences)
+        (aggregate-sentence-bio-terms s p)
+        (sort-bio-terms p (contents p))))))
 
 (defmethod aggregate-bio-terms ((tt title-text))
   (let ((s (children tt)))
@@ -289,7 +290,7 @@
     paragraph to get a coarse style marker of a sort.")
   
   (:method ((p paragraph))
-    (declare (special *tts-after-each-section*))
+    (declare (special *print-text-stats* *show-article-progress*))
     (when (and (starts-at-pos p) (ends-at-pos p))
       (let* ((content (contents p))
              (sentences (sentences-in-paragraph p)) ; list of sentence objects
@@ -300,12 +301,17 @@
         (setf (word-count content) word-count)
         (setf (token-count p) word-count)
 
-        (when *tts-after-each-section*
-          (format t "~&Paragraph ~a~%  ~a sentences~%  ~a words~
-                   ~%  ~4,1F words per sentence~%"
+        (when (and *print-text-stats*
+                   *show-article-progress*)
+          (format t "~&Paragraph ~a.  ~a sentences  ~a words.
+                   ~%"
                   p (length sentences) word-count
-                  (float (/ word-count (length sentences)))))
+                  ))
         word-count ))))
+
+#|    ~4,1F words per sentence
+     (float (/ word-count (length sentences)))
+|#
 
 (defgeneric aggregate-text-characteristics (doc-element)
   (:documentation "Add up the word-count over the element's
@@ -316,10 +322,132 @@
                     sum (token-count d))))
       (setf (token-count e) count)
       count)))
-      
-                      
 
 
+
+;;;--------------------------------------------
+;;; what 'noteworthy' individuals have we seen
+;;;--------------------------------------------
+
+(defgeneric collect-noted-items (doc-element)
+  (:documentation "The accumulate-items class holds
+    an alist of the count of noted categories. See the
+    function 'note' for details. Specialized to the relationship
+    between a paragraph and the sentences in it.
+    This is called during the paragraph after-action method
+    to merge sentence-level notes to the paragraph level.")
+  (:method ((p paragraph))
+    (let* ((sentences (sentences-in-paragraph p))
+           (contents (loop for s in sentences collect (contents s)))
+           (alists (loop for c in contents
+                      when (items c) collect (items c))))       
+      (when alists
+        (let ((merged-alist (merge-items-alists alists)))
+          (setf (items (contents p)) merged-alist)
+          p)))))
+
+(defgeneric aggregate-noted-items (doc-element)
+  (:documentation "Called as part the section level after-actions and
+    again at the article level before it consolidates them.
+    Modeled on paragraph level, but pulling from the paragraphs.")
+  (:method ((parent has-children))
+    (let* ((children (children parent))
+           (contents (loop for c in children collect (contents c)))
+           (alists (loop for d in contents
+                      when (items d) collect (items d))))
+      (when alists
+        (let ((merged-alist (merge-items-alists alists)))
+          (setf (items (contents parent)) merged-alist)))
+      parent)))
+
+(defun merge-items-alists (alists)
+  "Since they're built by using find-or-make on their notables (see their
+   constructor: get-entry-for-notable) the note-entries are the same individuals
+   at every level. They just accumulate edge-strings. Consequently, merging
+   the entries in the input alists is just a matter of adding new entries
+   to the 'merged-alist' when they're encountered."
+  (let ((merged-alist (first alists))) ; prime the pump
+    (loop for alist in (cdr alists)
+       do (loop for (name note-entry) in alist
+             unless (assoc name merged-alist :test #'eq)
+             do (push `(,name ,note-entry) merged-alist)))
+    merged-alist))
+ 
+
+(defgeneric consolidate-notes (doc-element)
+  (:documentation "Called from the article after-actions method.
+    The noteworthy categories are organized into groups.
+    At this step we aggregate the individual note-instances into their
+    groups, replacing the items field with a list of note-group-instance(s)")
+  (:method ((a article))
+    (let* ((content (contents a))
+           (entries (items content))
+           alist  groups )
+      ;; 1st distribute the note entries in an alist by group name
+      (flet ((add-to-alist (group note-entry)
+               (let* ((group-name (name group))
+                      (group-entry (assoc group-name alist)))
+                 (cond
+                   ((null alist) ; very first time
+                    (setq alist (list (list group-name note-entry))))
+                   ((null group-entry) ; nothing for this one
+                    (push (list group-name note-entry) alist))
+                   (group-entry
+                    (push note-entry (cdr group-entry)))
+                   (t (break "shouldn't get here"))))))
+        (loop for pair in entries
+           as note-entry = (second pair)
+           as notable = (notable note-entry)
+           as group = (part-of-group notable)
+           do (add-to-alist group note-entry)))
+
+      ;; 2d convert the alist into a list of group instances
+      (flet ((create-group-instance (name entries)
+               (let ((gi (find-or-make-note-group-instance name))
+                     (sum (loop for entry in entries
+                             sum (instance-count entry))))
+                 (setf (note-instances gi) entries)
+                 (setf (group-count gi) sum)
+                 gi)))
+        (let ((group-instances
+               (loop for alist-entry in alist
+                  as group-name = (car alist-entry)
+                  as note-entries = (cdr alist-entry)
+                  collect (create-group-instance group-name note-entries))))
+          (let ((sorted-instances (sort (copy-list group-instances)
+                                        'sort-note-group-instances)))
+            (setf (items content) sorted-instances)
+            a ))))))
+    
+
+;;--- accessors, sited here because has to be loaded -after- article is defined
+
+(defgeneric get-noted-groups (article)
+  (:documentation "Return a flat list of the group-entries
+    within the group-instances of the article")
+  (:method ((a article))
+    (let ((group-instances (items (contents a))))
+      (loop for note-entry in group-instances
+         append (note-instances note-entry)))))
+
+(defgeneric number-of-words-note-spans (notable)
+  (:documentation "How many words does a note object cover?
+    Goal is to get notion of the percentage of an article
+    that various note instance objects cover.")
+  (:method ((entry note-entry)) ; 
+    (let ((edge-records (text-strings entry)))
+      (loop for record in edge-records
+         as edge = (edge-of-edge-record record)
+         sum (edge-length edge))))
+  (:method ((group-instance note-group-instance))
+    (let ((entries (note-instances group-instance)))
+      (loop for entry in entries
+         sum (number-of-words-note-spans entry))))
+  (:method ((a article))
+    (let ((groups (get-noted-groups a)))
+      (loop for group-instance in groups
+         sum (number-of-words-note-spans group-instance)))))
+                              
 
 ;;;--------------------------------
 ;;; how well is our analysis doing
@@ -429,7 +557,6 @@ using data collected by identify-relations |#
 (defmethod sentence-mentions ((s sentence))
   (sentence-mentions (contents s)))
 
-
 (defmethod sentence-mentions ((s string))
   (safe-parse s)
   (sentence-mentions (contents (sentence))))
@@ -439,38 +566,41 @@ using data collected by identify-relations |#
         (init-mentions (find-all-mentions s)))
     (setf (gethash s *mentions-in-sentence*)
           (if (eq (search "NIL" s-toc-ind :test #'equalp) 0)
-              ;; we're not in an article
-              ;; need to be case-insensitive for when "nil" is lowercase...
-              init-mentions
-              (loop for mention in init-mentions
-                    collect (let ((ment-art-loc (car (mentioned-in-article-where mention))))
-                              (cond ((or (null ment-art-loc)
-                                  ;; if we're not in an article, this is unbound
-                                         (equal ment-art-loc s-toc-ind))
-                                     mention)
-                                    ((mention-in-sentence? mention s)
-                                     ;; check if in bounds of current
-                                     ;; sentence -- if so, then the
-                                     ;; mentioned-in-article-where is
-                                     ;; wrong and should be updated
-                                     (push mention *reset-sent-mentions*)
-                                     (setf (mentioned-in-article-where mention)
-                                           (cons s-toc-ind *current-paragraph*))
-                                     mention)
-                                    (t
-                                     (push mention
-                                           (gethash
-                                            s
-                                            *sentence-mismatch-mentions-ht*))
-                                     (if *break-on-sentence-mention-mismatches*
-                                         (lsp-break "bad mention sentence match for ~s ~s~%"
-                                                    mention s)
-                                       ;; this is problematic because
-                                       ;; there will be bad mentions
-                                       ;; in the table -- hopefully
-                                       ;; will find and fix all these
-                                       ;; cases
-                                         mention)))))))))
+            ;; we're not in an article
+            ;; need to be case-insensitive for when "nil" is lowercase...
+            init-mentions
+            (loop for mention in init-mentions
+               collect
+                 (let ((ment-art-loc (car (mentioned-in-article-where mention))))
+                   (cond ((or (null ment-art-loc)
+                              ;; if we're not in an article, this is unbound
+                              (equal ment-art-loc s-toc-ind))
+                          mention)
+                         ((mention-in-sentence? mention s)
+                          ;; check if in bounds of current
+                          ;; sentence -- if so, then the
+                          ;; mentioned-in-article-where is
+                          ;; wrong and should be updated
+                          (push mention *reset-sent-mentions*)
+                          (setf (mentioned-in-article-where mention)
+                                (cons s-toc-ind *current-paragraph*))
+                          mention)
+                         (t
+                          (push mention
+                                (gethash
+                                 s
+                                 *sentence-mismatch-mentions-ht*))
+                          (if *break-on-sentence-mention-mismatches*
+                            (lsp-break "bad mention sentence match for ~s ~s~%"
+
+                                       mention s)
+                            ;; this is problematic because
+                            ;; there will be bad mentions
+                            ;; in the table -- hopefully
+                            ;; will find and fix all these
+                            ;; cases
+
+                            mention)))))))))
 
 (defun mention-in-sentence? (mention s)
   "Given a mention and a sentence, determine if the mention's bounds
@@ -490,16 +620,17 @@ using data collected by identify-relations |#
       (and (<= s-start-index m-start-index)
            (>= s-end-index m-end-index)))))
 
+
 ;;;----------------------------------------------
 ;;; functionally salient aspects of the sentence
 ;;;----------------------------------------------
 
 ;;--- Uses sentence-text-structure class
 
-(defmethod set-sentence-subject ((e edge) (s sentence))
-  (let ((referent (edge-referent e)))
-    ;;/// should we insist that it be an individual ?
-    (setf (sentence-subject (contents s)) referent)))
+(defgeneric set-sentence-subject (edge sentence)
+  (:documentation "Record the minimal edge over the subject")
+  (:method ((e edge) (s sentence))
+    (setf (sentence-subject (contents s)) e)))
 
 (defmethod get-sentence-subject ((s sentence))
   (sentence-subject (contents s)))

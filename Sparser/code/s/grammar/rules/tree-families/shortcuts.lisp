@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2011-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2011-2021 David D. McDonald  -- all rights reserved
 ;;; Copyright (c) 2009-2010 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "shortcuts"
 ;;;   Module:  "grammar;rules:tree-families:"
-;;;  version:  December 2020
+;;;  version:  April 2021
 
 
 ;; Started 4/3/09. Modeled on [model;core:kinds:object] Modified
@@ -168,6 +168,21 @@ broadly speaking doing for you all the things you might do by hand.
         ref)))
 
 (defparameter *inhibited-plurals* nil "Collects these for later review")
+
+(defun name-is-cat-p (name)
+  "Given a string, it checks if either the given string or the string
+  with hyphens in place of spaces is a category, and then returns
+  symbol that matches a category if it exists"
+  (let ((sym-name (intern (string-upcase name) 
+                                     (find-package :sparser)))
+        (hyph-sym-name (intern (string-upcase (substitute #\- #\space name))
+                                          (find-package :sparser))))
+    (cond ((category-named sym-name)
+           sym-name)
+          ((category-named hyph-sym-name)
+           hyph-sym-name)
+          (t
+           nil))))
 
 (defun add-rules-cond-plural (word category ind &key plural no-plural (pos :common-noun))
   "Given a word, category, and individual, add-rules to the individual
@@ -442,54 +457,7 @@ see if there are issues"
        :realization ',realization
        :documentation ,documentation))
 
-#+ignore  `(adj/expr ',name
-        :adj ',adj
-        :super ',super ;; :specializes ',specializes
-        :binds ',binds :realization ',realization
-        :instantiates ',instantiates :mixins',mixins
-        :restrict ',restrict :rule-label ',rule-label
-        :obo-id ,obo-id)
 
-#+ignore ;; original -- circa early 2015
-(defun adj/expr (name
-                 &key adj
-		   super specializes 
-		   binds realization
-		   instantiates mixins
-		   restrict rule-label obo-id)
-  (declare (ignore rule-label instantiates))
-  (unless (or super specializes)
-    (setq specializes (super-category-for-POS :adjective)))
-  (when binds
-    (unless realization
-      (error "Variables were specified (:binds) but not a realization")))
-  ;; (when realization
-  ;;   (unless (or binds 
-  ;;               ;; should actually check for inherited categories as well
-  ;;               (and super (cat-slots (category-named super)))
-  ;;               (and specializes (cat-slots (category-named specializes))))
-  ;;     (error "A realization was specified but no variables"))
-  ;;   (setq realization
-  ;;         (cons :adj (cons adj realization))))
-  (let* ((form
-	  `(define-category ,name
-	       :specializes ,super
-	       :binds ,binds
-	       :restrict ,restrict
-	       :mixins ,mixins
-	       :realization
-	       ,(if adj `(:adj ,(if (consp adj) (car adj) adj)
-			  ,.realization)
-		    realization)))
-	 (category (eval form)))
-    (when obo-id
-      (setq category (bind-dli-variable 'uid obo-id category)))
-    (dolist (string (when (consp adj)(cdr adj)))
-      (let ((rule-form `(def-cfr/expr ',(cat-name category) '(,string)
-			  ;; can we guess it's a common noun for form?
-			  :referent ,category)))
-	(eval rule-form)))
-    category))
 
 
 (defmacro adv (name
@@ -561,6 +529,9 @@ see if there are issues"
 ;;--- Adjective/adverb pairs
 
 (defun adj/adv (adjective adverb &key super-category)
+  "This defines a single concept with realizations (rules) for both
+   and adjective form and an adverb form. The category name is based on
+   the adjective version"
   (unless super-category
     (error "You must supply a super category for any multi part-~
             of-speech def form~%adjective/adverb: ~a ~a"
@@ -579,25 +550,83 @@ see if there are issues"
         ;; and they do the bracket assignment. 
         (make-rules-for-head :adjective adj category category)
         (make-rules-for-head :adverb adv category category)
-        category))))
+
+        #+ignore ;; call to define-individual can't find a 'word'
+        ;;  variable on the constructed category
+        (let* ((instance-form `(define-individual ',name
+                                   :word ,adj)) ; arbitrary choice
+               (i (eval instance-form))
+               (rules (get-rules category)))
+          (break "rules: ~a" rules)
+          (loop for r in rules
+             do (setf (cfr-referent r) i))
+          category)))))
 
 
 
-;;--- Interjection
-;; Donesn't appear to have callers. All converted to speech acts
-#+ignore(defun sentential-interjection (string-for-interjection)
-  ;; "ok" "goodbye"  All instances right now are in checkpoint/vocabulary.lisp
-  (let* ((name (name-to-use-for-category string-for-interjection))
-         (form
-          `(define-category ,name
-	     :instantiates :self
-             :binds ((modifier))
-             :realization
-               (:tree-family sentence-interjection
-                :mapping ((interjection . :self)
-                          (modifier . modifier))
-               :interjection ,string-for-interjection))))
-    (eval form)))
+(defun define-simultaneous-adjective-adverb (string
+                                             &key super-category)
+  "One word but with two rules, one marked as an adverb and the
+   other as an adjective"
+  (let ((superc (or super-category
+                    'modifier))
+        (word (resolve/make string))
+        (category-name (name-to-use-for-category string)))
+    (let* ((form
+            `(define-category ,category-name
+               :instantiates :self
+               :specializes ,superc
+               :bindings (word ,word)))
+           (category (eval form)))
+      (let* ((instance-form `(define-individual ',category-name
+                                 :word ,word))
+             (i (eval instance-form)))
+        (let* ((adj-rule
+                (define-cfr category (list word)
+                  :form (category-named 'adjective)
+                  :referent i))
+               (adv-rule
+                (define-cfr category (list word)
+                  :form (category-named 'adverb)
+                  :referent i))
+               (rules (list adj-rule adv-rule)))
+          (add-rules rules category)
+          (values category
+                  i
+                  rules))))))
+            
+
+(defun define-simultaneous-adverb-subord-conj (string
+                                                  &key super-category)
+  "One word but with two rules, one marked as an adverb and the
+   other as a subordinate conjunction"
+  (let ((superc (or super-category
+                    'conjunction)) ;/// motivation for abstractions
+        (word (resolve/make string))
+        (category-name (name-to-use-for-category string)))
+    (let* ((form
+            `(define-category ,category-name
+               :instantiates :self
+               :specializes ,superc
+               :bindings (word ,word)))
+           (category (eval form)))
+      (let* ((instance-form `(define-individual ',category-name
+                                 :word ,word))
+             (i (eval instance-form)))
+        (let* ((sub-conj-rule
+                (define-cfr category (list word)
+                  :form (category-named 'subordinate-conjunction)
+                  :referent i))
+               (adv-rule
+                (define-cfr category (list word)
+                  :form (category-named 'adverb)
+                  :referent i))
+               (rules (list sub-conj-rule adv-rule)))
+          (add-rules rules category)
+          (values category
+                  i
+                  rules))))))
+
 
 
 
@@ -701,29 +730,18 @@ see if there are issues"
 
 
 
-;;//// 9/14/14 This scheme doesn't work. The bracket judgements
-;; completely close off the verb on an mvb, which hides it from
-;; the check on occurances prepositions
 (defun sv-prep (verb preposition)
   "Intransitive with an associated preposition, e.g. 'move along'"
   (unless (and (stringp verb) (stringp preposition))
-    (error "Arguments must be string giving the base for of words"))
+    (error "Arguments must be strings giving the base for of words"))
   (let* ((name (name-to-use-for-category 
 		(string-append verb "/" preposition)))
          (form
           `(define-category ,name
              :instantiates :self ;; place for generalization
              :specializes perdurant
-             :binds ((subject . individual))
-             :realization
-             (:tree-family intransitive-with-preposition
-	      :mapping ((s . process)
-                        (vp . process)
-                        (vg . :self)
-                        (np/subject . endurant)
-                        (prep . ,preposition)
-                        (agent . subject))
-              :verb ,verb)))
+             :mixins (basic-intransitive)
+             :realization (:verb (,verb :prep ,preposition))))
          (category (eval form)))
     category))
 
@@ -789,74 +807,6 @@ see if there are issues"
                            (np/object . ,obj-v/r))))) ))
     (eval form))))
 
-
-#+ignore  ;; only used in unloaded biology/nfkappb
-(defun vo (verb super-category &key object)
-  ;;// rule-for, restrict, mixins
-  ;; Based on verb+direct-object, the variable for the object
-  ;; is 'theme' by a convention out of c3.
-  (let ((name (name-to-use-for-category verb)))
-    (multiple-value-bind
-        (binding-vr parsing-vr)
-        (typecase object
-          (symbol (values object object))
-          ;; a cons would distinguish type from vr
-          (otherwise
-           (push-debug `(,object))
-           (error "New object case for vo: ~a" object)))
-      (let ((form
-             `(define-category ,name
-                :instantiates :self
-                :specializes ,super-category
-                :binds ((theme . ,binding-vr))
-                :realization
-                  (:tree-family verb+direct-object
-                   :mapping ((patient . theme)
-                             (result-type . :self)
-                             (vp . :self)
-                             (vg . :self)
-                             (np/object . ,parsing-vr))
-                   :verb ,verb))))
-        (eval form)))))
-
-
-;; Used in checkpoint vocabulary for 'open up'
-#+ignore  ;; commented out 'open up'
-(defun sv-prep-marked-o (verb preposition)
-  (unless (and (stringp verb) (stringp preposition))
-    (error "Arguments must be string giving the base for of words"))
-  (let* ((name (name-to-use-for-category 
-		(string-append verb "/" preposition)))
-         (form
-          `(define-category ,name
-	     :instantiates :self ;; place for generalization
-             :specializes event
-             :binds ((subject . individual)
-                     (object . individual))
-             :realization
-             (:tree-family transitive/specializing-pp
-	          :mapping ((s . event)
-                        (vp . event)
-                        (vg . :self) ;; otherwise we don't pickup the pn
-                        (np/subject . individual)
-                        (prep . ,preposition)
-                        (pp/np . individual)
-                        (agent . subject)
-                        (theme . object))
-              :verb ,verb)))
-         (category (eval form)))
-    (let ((v+p-rule (find-rule-in-category category :vp+prep/object)))
-      (if v+p-rule 
-	    (let* ((lhs (cat-symbol (cfr-category v+p-rule)))
-               (bootstap-rule
-                `(def-cfr event (,lhs individual)
-                   :form vp
-                   :referent (:head left-edge
-                              :bind (object right-edge))))
-               (rule (eval bootstap-rule)))
-          (add-rule rule category)
-          category)
-        (error "v+p-rule is missing")))))
 
 
 (defmacro svcomp (verb super-category &key subject complement)

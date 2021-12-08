@@ -78,7 +78,9 @@ demonstratives.)
              (if existing-value ;; concatenate them for this level
                (cons selector existing-value)
                (list selector))))
-        (bind-variable 'selector value np-head)))))
+        ;; nb. need to include the optional 'category' parameter
+        ;;  to ensure that 'selector' isn't assumed to be anonymous
+        (bind-variable 'selector value np-head category::endurant)))))
 
 
 ;;;------------------------
@@ -220,7 +222,7 @@ demonstratives.)
 
     (t
      (push-debug `(,spec ,head))
-     (warn #|break|# "sort-out-specifier/of: no handler specifier: ~a~
+     (warn-or-error "sort-out-specifier/of: no handler specifier: ~a~
             ~%of type: ~a~%in ~s"
            spec (itype-of spec) (current-string))
      ;; drop the spec on the floor

@@ -2244,8 +2244,7 @@
 (define-category equal-cl-noun :specializes comlex-noun
      :realization (:noun  "equal"))
 
-(define-category fall-cl-noun :specializes comlex-noun
-     :realization (:noun  "fall"))
+;; "fall" -- comlex ntime1, is already defined as a season
 
 (define-category fee-cl-noun :specializes comlex-noun
      :realization (:noun  "fee"))
@@ -2268,9 +2267,8 @@
 (define-category fuel-cl-noun :specializes comlex-noun
      :realization (:noun  "fuel"))
 
-(define-category go-cl-noun :specializes comlex-noun
-     :realization (:noun ( "go" )
-))
+;; go-cl-noun -- moved to verbs dossier. Marked to not take plurals
+
 
 (define-category grab-cl-noun :specializes comlex-noun
      :realization (:noun  "grab"))

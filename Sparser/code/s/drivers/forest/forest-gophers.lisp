@@ -3,7 +3,7 @@
 ;;; 
 ;;;     File:  "forest-gophers"
 ;;;   Module:  "drivers;forest:"
-;;;  Version:  January 2021
+;;;  Version:  September 2021
 
 ;; Initiated 8/30/14. To hold predicates and other little computations
 ;; done by the forest-level sweeping and island-driving. Also a good
@@ -26,13 +26,22 @@
    edges for different interpretations of the verb. That means
    that we can't set main-verb-seen? until we've looped around
    and encountered an edge that isn't a verb")
+(defvar nps-seen nil
+  "Initialized in clear-sweep-sentence-tt-state-vars, contains the edge
+   for each np (each type of form listed in the sweep leading to
+   the catalog NP call, particularly pronouns) along with the set of
+   properties we can deduce about them.")
+(defvar count-past-verb nil
+  "draft way to see how many constituents past the verb
+   the next tt is")
 
 (defun clear-sweep-sentence-tt-state-vars ()
   (declare (special nps-seen)) ; in sweep.lisp
   (setq subject-seen? nil
         main-verb-seen? nil
         waiting-for-non-verb nil
-        nps-seen nil))
+        nps-seen nil
+        count-past-verb nil))
 
 ;;;----------------------------------------
 ;;; setting and getting fields of a layout
@@ -42,6 +51,7 @@
   (declare (special subject-seen?))
   (tr :setting-subject-to tt)
   (setf (subject (layout)) tt)
+  (set-sentence-subject tt (bkptr (layout)))
   (setq subject-seen? t))
 
 
@@ -99,6 +109,11 @@
       unless (edge-used-in edge)
       collect edge)))
 
+(defun push-post-verb-tt (tt)
+  (push tt (post-verb-tt (layout))))
+
+(defun post-mvb-tt ()
+  (post-verb-tt (layout)))
 
 (defun push-verb-phrase (tt)
   (push tt (verb-phrases (layout))))
@@ -381,6 +396,18 @@
               left-daughter))))))
 
 
+(defun find-word-under (edge)
+  "We have an edge, and we want the word that led to it, which could
+   be daughter edges removed. We walk down left-daughter's until
+   we get to a word. Motivating case is abbreviations: 'Inc.'"
+  (etypecase edge
+    (word edge)
+    (polyword edge)
+    (edge (let ((daughter (edge-left-daughter edge)))
+            (find-word-under daughter)))))
+            
+
+
 (defun walk-down-right-headline (edge)
   "Given an edge, presumed to be the result of a binary composition,
    walk down its right-daughter chain until you reach a edge that
@@ -456,25 +483,71 @@
 
 
 (defun find-verb (edge)
+  "Caller believes there ought to be an edge somewhere along the tree
+   that's rooted on this edge. Walks down recursively until it either
+   finds it or returns nil if it's heuristically sure there isn't one."
   (declare (special category::pp))
   (let ((form (edge-form edge)))
     (unless (or (vp-category? form)
-                ;; this is for predication edges formed over vp+ing
-                ;; as in "suggesting that terminally differentiated myotube nuclei are competent "
+                ;; this is for predication edges formed over vp+ing as
+                ;; in "suggesting that terminally differentiated
+                ;; myotube nuclei are competent "
                 (eq (edge-form-name edge) 'lambda-form))
       (push-debug `(,edge))
       (error "Not a VP category: ~a in e~a"
              form (edge-position-in-resource-array edge)))
     (cond
+      ((eq (edge-rule edge) 'add-adjunctive-pp)
+       (find-verb (edge-left-daughter edge)))
+
+      ((eq (edge-rule edge) 'np-vg+ed)
+       (let ((right-daughter (edge-right-daughter edge)))
+         (if (eq right-daughter :long-span)
+           (if (edge-constituents edge)
+             (find-verb (second (edge-constituents edge)))
+             ;; "Two of the monsters examined in von Puttkamer's latest film "
+             ;;  + "include the Puerto Rican chupacabra "
+             ;; As called from attach-oblique-s-as-subject-to-vp
+             nil)                        
+           (find-verb right-daughter))))
+
+      ((and (verb-category? (edge-form edge))
+            (null (edge-left-daughter edge))) ;; e.g. have → "have"
+       edge)
+
+      ((and (verb-category? (edge-form edge))
+            (eq :single-term (edge-right-daughter edge)))
+       edge)
+
+      ((eq :long-span (edge-right-daughter edge))
+       (find-verb (edge-left-daughter edge)))
+
       ((and (vp-category? (edge-form edge))
             (or (word-p (edge-left-daughter edge))
                 (polyword-p (edge-left-daughter edge))
                 ;; "the drug up-regulates..."
                 (polyword-p (edge-category (edge-left-daughter edge)))))
        edge)
+
+      ((and (vp-category? (edge-form edge)) ;; vp: "are wooing"
+            (vp-category? (edge-form (edge-left-daughter edge)))) ;; "be"
+       (find-verb (edge-left-daughter edge)))
+      
+      ((and (vp-category? (edge-form (edge-left-daughter edge)))
+            (vp-category? (edge-form (edge-right-daughter edge))))
+       ;; "won't be" -- switch to the right side
+       (find-verb (edge-right-daughter edge)))
+      
+      ((eq (form-cat-name edge) 'subj+verb) ; 'there' construction
+       (let ((right-daughter (edge-right-daughter edge)))
+         (if (verb-category? right-daughter)
+           right-daughter
+           (find-verb right-daughter))))
+      
       ((member (edge-rule edge) '(attach-to-comp-comma-to-s
                                   attach-trailing-participle-to-clause-with-comma))
        (find-verb (car (last (edge-constituents edge)))))
+      
       (t
        (let* ((left (edge-left-daughter edge))
               (left-form (edge-form left))

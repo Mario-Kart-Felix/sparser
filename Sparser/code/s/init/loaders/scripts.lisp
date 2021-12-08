@@ -2,7 +2,7 @@
 ;;;
 ;;;      File: "scripts"
 ;;;    Module: "init;loaders;"
-;;;   Version: February 2021
+;;;   Version: September 2021
 
 (in-package :sparser)
 
@@ -120,7 +120,18 @@ in conjunction with an early version of Hark. Notable for using the
    (*index-bindings-to-variables* nil)
    (*filter-vocabulary* :score))
   (:grammar-configuration "score-grammar")
-  (:switches score-setting))
+  (:switches neo-fire-setting)) ; score-setting
+
+(defscript acumen ()
+  (:script-variable *acumen*)
+  (:parameters
+   (*description-lattice* t)
+   (*ignore-literal-edges* nil)
+   (*index-under-permanent-instances* t)
+   (*index-bindings-to-variables* t)
+   (*filter-vocabulary* :acumen))
+  (:grammar-configuration "acumen-grammar")
+  (:switches neo-fire-setting))
 
 (defscript fire ()
   "FIRE stands for 'Free-text Information and Relation Extraction'.
@@ -133,10 +144,11 @@ It is essentially GROK going forward."
   (:switches neo-fire-setting))
 
 (defscript grok ()
-  (:grammar-configuration "grok")
+  (:script-variable *grok*)
   (:parameters
    (*index-bindings-to-variables* t))
   (:interfering-rules ((comma-number ("," number))))
+  (:grammar-configuration "grok")
   (:switches strider-setting))
 
 (defscript blocks-world ()

@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1993-2005,2013-2019  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1993-2005,2013-2021  David D. McDonald  -- all rights reserved
 ;;; Copyright (c) 2007 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "name words"
 ;;;   Module:  "model;core:names:"
-;;;  version:  February 2019
+;;;  version:  September 2021
 
 ;; [object] initiated 5/28/93 v2.3
 ;; 0.1 (12/30) allowed the case of the name-word maker being passes an already
@@ -42,7 +42,7 @@
   :specializes  name
   :binds ((name :primitive word)
           (name-of collection)) ;; the named-objects it names
-  :index (:permanent
+  :index (:permanent :apply
           :special-case
           ;; needed because these are extensively cross-linked to the
           ;; words involved, and those links have to be taken off by hand
@@ -51,30 +51,119 @@
           :reclaim reclaim/name-word))
 
 
-;;--- Linking name words to named-objects (companies, people, etc.)
-;;  Used with names/parens-after-names to handle the new alias
+;;;---------------------
+;;; indexing name words
+;;;---------------------
 
-#+ignore ;; never called
-(defun link-named-object-to-name-word (object nw)  
-  (let ((collection (value-of 'name-of nw category::name-word)))
-    (push-debug `(,object ,nw ,collection))
-    (break "~&~%Linking name-word ~a~%  to object ~a~%  the collection ~
-            is ~a" nw object collection)
-    (if collection
-      (then
-       (add-item-to-collection object collection))
-      (let ((c (define-collection `(,object) category::named-object)))
-        (bind-variable 'name-of c nw category::name-word))))) ;; obsolete in bind-dli-variable
+(defun find/name-word (name-word-category binding-instructions)
+  (let ((word (value-of-instr 'name binding-instructions))
+        (table (cat-instances name-word-category)))
+    (when table
+      (gethash word table))))
+
+(note-permanence-of-categorys-individuals
+ ;; otherwise the hash-table could be reaped
+ (category-named 'name-word))
+
+;; For debugging
+;(setf (cat-instances (category-named 'name-word)) nil)
+
+(defun index/name-word (nw name-word-category bindings)
+  (let ((word (value-of/binding 'name bindings name-word-category))
+        (table (cat-instances name-word-category)))
+    (unless word
+      (break "no word binding supplied with definition"))
+    (unless (or (word-p word)
+                (polyword-p word))
+      (break "The object bound to 'name' should be a 'word'~
+              ~%but is isn't:  ~A" word))
+    (unless table
+      (setq table (setf (cat-instances name-word-category)
+                        (make-hash-table))))
+    (setf (gethash word table) nw)))
 
 
-(define-category name-component
-  :instantiates nil
-  :specializes name
-  :documentation "Used for parts of names ('el', 'Ms.', 'junior')
-    that don't stand by themselves and don't refer. They can frequently
-    be separated from the rest of the name with it remaining recognizable")
+(defun reclaim/name-word (nw table name-word-category)
+  (declare (ignore name-word-category)
+           (special *break-on-pattern-outside-coverage?*))
+  (unless (permanent-individual? nw)
+    (let ((word (value-of 'name nw))
+          (cfr (get-tag :rule nw)))
+      (block delete-nw-cfr
+        (unless cfr
+          (when *break-on-pattern-outside-coverage?*
+            (break "Data check: no cfr listed with the name word~
+              ~%  ~A~%" nw))
+          (return-from delete-nw-cfr))
+        (unless (cfr-p cfr)
+          (when *break-on-pattern-outside-coverage?*
+            (break "Object listed as the cfr for ~A~%isn't: ~A" nw cfr))
+          (return-from delete-nw-cfr))
+        (delete/cfr cfr))
 
-;;--- sort routine
+      (remove-tag :name-word word)
+      (remhash word table)
+      nw)))
+
+
+;;;--------------------
+;;; linking -- name-of
+;;;--------------------
+
+#| The name-of variable, which was designed to link a name-word to
+ a collection of all the names it is part of, is problematic when
+ we are using the description-lattice to manage individuals.
+   This is because the lattice mechanics arrange that every new binding
+ creates a new, more specific, individual. This is at odds with the
+ original design where individuals were rigid. 
+
+ I'm emulating the effect of the name-of variable by using a function
+ of the same name that's based on a table. The table has to be managed,
+ which right now (9/15/21) is still being worked out.
+|#
+
+(defparameter *nw-to-names* (make-hash-table)) ;/// size?
+
+(defun name-of (nw)
+  "Return the probably single object that this nw has been linked to.
+   If more than one link has been made return the whole list"
+  (let ((value (gethash nw *nw-to-names*)))
+    (when value
+      (cond
+        ((itypep value 'collection)
+         (let ((items (value-of 'items value)))
+           (if (null (cdr items)) ; just one
+             (car items)
+             items))) ; caller could get a list
+        ((itypep value 'name)
+         value)
+        ((itypep value 'named-object) ; e.g. company
+         value)
+        ((itypep value 'person)
+         value)
+        ((itypep value 'company)
+         value)
+        (t (break "name-of  value= ~a~%    of new type ~a" value (itype-of value)))))))
+
+(defun set-name-of (nw item &optional type)
+  "Record that the name-word 'nw' is part of the name 'name'.
+   Applies generally to link short form names such as company acronyms
+   to their full form"
+  (let ((prior-value (gethash nw *nw-to-names*)))
+    (if prior-value
+      (if (eq prior-value item)
+        item
+        (else ;; make a collection -  nw 'books' in #1
+          (let* ((items (list item prior-value))
+                 (c (define-collection items (itype-of item))))
+            (setf (gethash nw *nw-to-names*) c))))
+      (else ; first time
+        (setf (gethash nw *nw-to-names*) item)))))
+
+
+;;;--------------
+;;; sort routine
+;;;--------------
 
 (defun sort-lists-of-name-items (l1 l2)
   ;; called from Sort-individuals-by-their-name.
@@ -84,7 +173,6 @@
               (return-from sort-lists-of-name-items
                 (sort-name-items item1 item2))))
         l1 l2))
-
 
 (defun sort-name-items (item1 item2)
   ;; This sorts the things that can appear in the list of a
@@ -101,7 +189,6 @@
         (sort-names name1 name2)
         t ))))
 
-
 (defun sort-names (n1 n2)
   ;; this sorts things that can appear in the 'name' binding
   ;; of some individual.
@@ -111,7 +198,12 @@
     t ))
      
 
+#+apple (define-sort-function 'name-word 'sort-name-words)
 
+(defun sort-name-words (nw1 nw2)
+  (let ((s1 (word-pname (value-of 'name nw1)))
+        (s2 (word-pname (value-of 'name nw2))))
+    (string< s1 s2)))
 
 
 ;;;------------
@@ -146,18 +238,10 @@
     (nreverse name-words)))
 
 
-#+apple (define-sort-function 'name-word 'sort-name-words)
-;; 1/6/07 didn't confirm that this is a MCL-specific routine
 
-(defun sort-name-words (nw1 nw2)
-  (let ((s1 (word-pname (value-of 'name nw1)))
-        (s2 (word-pname (value-of 'name nw2))))
-    (string< s1 s2)))
-
-
-;;;---------
-;;; drivers
-;;;---------
+;;;-------------------
+;;; making name-words
+;;;-------------------
 
 (defun make-name-word-for-unknown-word-in-name (lc-word
                                                 &optional position)
@@ -193,6 +277,7 @@
             (get-tag :name-word actual-word) name)
       name )))
 
+
 (defun define-name-word (word)
   (let* ((nw (define-individual category::name-word
 		:name word))
@@ -202,18 +287,6 @@
     (setf (get-tag :rule nw) rule
           (get-tag :name-word word) nw)
     nw))
-
-
-(defun make-name-word-silent (nw)
-  ;; called by any routine that wants to flush the cfr for the nw
-  ;; because it is going to supplant it with its own.
-  (let ((cfr (get-tag :rule nw)))
-    (delete/cfr cfr)
-    (remove-tag :rule nw)
-    (let ((word (value-of 'name nw)))
-      (when (trivial-rule-set (rule-set-for word))
-        (remove-rule-set-from word))
-      nw )))
 
 
 (defgeneric define-name-word/actual (word)
@@ -231,6 +304,18 @@
         (let ((nw (define-individual category::name-word
                       :name w)))
           (setf (get-tag :name-word w) nw)))))
+
+
+(defun make-name-word-silent (nw)
+  ;; called by any routine that wants to flush the cfr for the nw
+  ;; because it is going to supplant it with its own.
+  (let ((cfr (get-tag :rule nw)))
+    (delete/cfr cfr)
+    (remove-tag :rule nw)
+    (let ((word (value-of 'name nw)))
+      (when (trivial-rule-set (rule-set-for word))
+        (remove-rule-set-from word))
+      nw )))
 
 
 (defun make-name-word-for/silent (lc-word
@@ -273,86 +358,32 @@
    name that includes a known category (the 'other' case). This makes
    a name-word object for what might otherwise be a normal word
    (e.g. the 'ball' in 'George K. Ball')"
-  (if (eq (pos-edge-ends-at edge)
-          (chart-position-after (pos-edge-starts-at edge)))
-    
-    ;; one word
-    (let ((word (edge-left-daughter edge)))
-      (or (name-word-for-word word)
-          (make-name-word-for/silent word (pos-edge-starts-at edge))))
+  (if (one-word-long? edge)
+    (let* ((daughter (edge-left-daughter edge)) ; "Market News Publishing Inc."
+           (word (typecase daughter
+                   (word daughter)
+                   (edge (find-word-under daughter)))))
+      (if (memq word *lc-person-words*)
+        (make-name-word-for/silent word (pos-edge-starts-at edge)
+                                   :use-lowercase-word t)
+        (else
+          (or (name-word-for-word word)
+              (make-name-word-for/silent word (pos-edge-starts-at edge))))))
 
     ;; more than one word (e.g. "Per Share")
     (let* ((pw-string (polyword-multiword-string-for-list-of-words
                        (words-between (pos-edge-starts-at edge)
                                       (pos-edge-ends-at edge))))
-           (word (resolve/make pw-string))) ;; "of Gwynedd"
+           (word (or (resolve pw-string)
+                     ;; Regular resolve/make would create a polyword
+                     (define-word/expr pw-string)))) ;; "of Gwynedd"
       (etypecase word
         (word
          (or (name-word-for-word word)
-             (make-name-word-for/silent word (pos-edge-starts-at edge))))
-        (polyword
-         #+ignore(error "How did we already get a polyword under ~a" edge))))))
+             (make-name-word-for/silent word (pos-edge-starts-at edge))))))))
 
 
 
-
-
-
-;;;---------------------
-;;; indexing name words
-;;;---------------------
-
-(defun find/name-word (name-word-category binding-instructions)
-  (let ((word (value-of-instr 'name binding-instructions))
-        (table (cat-instances name-word-category)))
-    (when table
-      (gethash word table))))
-
-(note-permanence-of-categorys-individuals
- ;; otherwise the hash-table could be reaped
- (category-named 'name-word))
-
-;; For debugging
-;(setf (cat-instances (category-named 'name-word)) nil)
-
-(defun index/name-word (nw name-word-category bindings)
-  (let ((word (value-of/binding 'name bindings name-word-category))
-        (table (cat-instances name-word-category)))
-    (unless word
-      (break "no word binding supplied with definition"))
-    (unless (or (word-p word)
-                (polyword-p word))
-      (break "The object bound to 'name' should be a 'word'~
-              ~%but is isn't:  ~A" word))
-
-    (unless table
-      (setq table (setf (cat-instances name-word-category)
-                        (make-hash-table))))
-    (setf (gethash word table) nw)))
-
-
-
-(defun reclaim/name-word (nw table name-word-category)
-  (declare (ignore name-word-category)
-           (special *break-on-pattern-outside-coverage?*))
-  (unless (permanent-individual? nw)
-    (let ((word (value-of 'name nw))
-          (cfr (get-tag :rule nw)))
-      (block delete-nw-cfr
-        (unless cfr
-          (when *break-on-pattern-outside-coverage?*
-            (break "Data check: no cfr listed with the name word~
-              ~%  ~A~%" nw))
-          (return-from delete-nw-cfr))
-        (unless (cfr-p cfr)
-          (when *break-on-pattern-outside-coverage?*
-            (break "Object listed as the cfr for ~A~%isn't: ~A" nw cfr))
-          (return-from delete-nw-cfr))
-        (delete/cfr cfr))
-
-      (remove-tag :name-word word)
-      (remhash word table)
-      nw)))
 
 
 ;;;---------------------------------------------

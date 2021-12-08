@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1992-2005,2011-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1992-2005,2011-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "printers"
 ;;;   Module:  "objects;model:individuals:"
-;;;  version:  April 2020
+;;;  version:  September 2021
 
 ;; initiated 7/16/92 v2.3, 9/3 added Princ-individual
 ;; (5/26/93) added Print-individual-with-name
@@ -115,6 +115,7 @@
 (defun has-a-bp-id? (i)
   (binds-variable i 'reactome-id))
 
+#+ignore ;; integrated into print-biopax-entity to reuse more general case
 (defmethod display-name? ((i individual))
   (let ((binding (binds-variable i 'reactome-id)))
     (when binding
@@ -129,18 +130,23 @@
 
 (defun print-biopax-entity (i stream)
   (declare (special *print-short*))
-  (write-string "#<" stream)
-  (unless *print-short*
-    (dolist (category (indiv-type i))
-      (princ-category category stream)
-      (write-string " " stream)))
-  (format stream "~A ~A ~A>" (or `(bp-id-of-individual i) "")
-          (if (name-of-individual i)
-           (format nil "[~A]" 
-                   (or (display-name? i)
-                       (name-of-individual i)))
-           "")
-          (maybe-indiv-uid i)))
+  (flet ((display-name? (i)
+           (let ((binding (binds-variable i 'reactome-id)))
+             (when binding
+               (binding-value binding)))))
+
+    (write-string "#<" stream)
+    (unless *print-short*
+      (dolist (category (indiv-type i))
+        (princ-category category stream)
+        (write-string " " stream)))
+    (format stream "~A ~A ~A>" (or `(bp-id-of-individual i) "")
+            (if (name-of-individual i)
+              (format nil "[~A]" 
+                      (or (display-name? i)
+                          (name-of-individual i)))
+              "")
+            (maybe-indiv-uid i))))
 
 
 ;;--- Vanilla cases
@@ -312,6 +318,7 @@
   (intern (string-append ':string/ category-name)
           *sparser-source-package*))
 
+
 (defun string-for (i)
   "Call the function that goes with this unit to return
    a nice print string to incorporate into some other print routine."
@@ -337,6 +344,9 @@
                  (super-categories-of i))
        (string/ordinal i)
        (string/category i)))
+
+    (polyword
+     (pname i))
 
     (word
      (word-pname i))
@@ -415,7 +425,7 @@
       i)))
             
 
-
+;; abbreviated 'di'
 (defun pretty-princ-individual (i &optional
                                     (stream *standard-output*)
                                     pending-indentation

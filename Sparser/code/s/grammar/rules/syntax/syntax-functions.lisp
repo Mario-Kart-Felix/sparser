@@ -3,7 +3,7 @@
 ;;;
 ;;;     File:  "syntax-functions"
 ;;;   Module:  grammar/rules/syntax/
-;;;  Version:  January 2021
+;;;  Version:  June 2021
 
 ;; Initiated 10/27/14 as a place to collect the functions associated
 ;; with syntactic rules when they have no better home.
@@ -528,7 +528,6 @@ val-pred-var (pred vs modifier - left or right?)
   ;; and {common-noun} → n-bar common-noun
   ;; or {proper-noun} → np proper-noun>
   ;; Also n-bar → {np n-bar}
-;;#####################################################################  
   (cond
     (*subcat-test*
      (let ((left-edge (left-edge-for-referent))
@@ -840,12 +839,24 @@ val-pred-var (pred vs modifier - left or right?)
 ;;---- prototype-of rule
 
 (defun create-prototype-of-np (prototype-word of-pp)
-  (cond (*subcat-test* (not (eq (edge-form-name (right-edge-for-referent)) 'preposition)))
-        (t
-         (let* ((prototype-np (value-of 'pobj of-pp)))
-           (setq prototype-word (bind-variable 'prototype prototype-np prototype-word))
-           (revise-parent-edge :category (itype-of prototype-np))
-           (specialize-object prototype-word (itype-of prototype-np))))))
+  "Invoked from np -> (takes-of-prototype of), where takes-prototype-of
+   is the 'rule-label of variant words like 'strain' or 'kind'. Those are
+   descriptions of the complement of the pp (pobj), so here we turn things
+   on their head by making the edge have the label of the pobj and specializing
+   the referent to have both categories."
+  (cond
+    (*subcat-test* (and (not (eq (edge-form-name (right-edge-for-referent))
+                                 'preposition))
+                        ;; "They {kind of come} to an agreement"
+                        ;; right-edge has to be a pp. That's a prep-comp
+                        (value-of 'pobj of-pp)))
+    (t
+     (let* ((prototype-np (value-of 'pobj of-pp)))
+       (when prototype-np
+         (setq prototype-word ;; e.g. an individual for "strain"
+               (bind-variable 'prototype prototype-np prototype-word))
+         (revise-parent-edge :category (itype-of prototype-np))
+         (specialize-object prototype-word (itype-of prototype-np)))))))
 
 
 ;;--- determiners
@@ -1301,7 +1312,7 @@ there was an edge for the qualifier (e.g., there is no edge for the
 (defun interpret-adverb+verb (adverb vg-phrase)
   (declare (special category::pp category::hyphenated-pair
                     category::hyphenated-triple))
-  ;; (push-debug `(,adverb ,vg)) (break "look at adv, vg")
+  ;; (push-debug `(,adverb ,vg-phrase)) (break "look at adv, vg")
   (if (word-p vg-phrase)
       (then (format t "vg-phrase ~s is not a category or an individual,~
                      ~% probably defined by morphology, can't attach adverb~%"
@@ -1310,6 +1321,7 @@ there was an edge for the qualifier (e.g., there is no edge for the
       (let* ((vg (individual-for-ref vg-phrase))
              (variable-to-bind
               (subcategorized-variable vg :adv adverb)))
+
         #| Really should diagnose among
         (time) (location) (purpose) (circumstance) (manner) |#
         (cond
@@ -1321,6 +1333,9 @@ there was an edge for the qualifier (e.g., there is no edge for the
            (cond
              (variable-to-bind t)
              ((has-adverb-variable? vg vg-phrase adverb) t)
+             ((and (itypep adverb 'approximator)
+                   (itypep vg 'takes-adverb)) ; any perdurant
+              t)
              ((and (is-basic-collection? vg)
                    ;; saw an error in  "phase–contrast only"
                    ;; where "phase-contrast" was treated as a verb
@@ -1350,6 +1365,8 @@ there was an edge for the qualifier (e.g., there is no edge for the
                 'adverb)
             adverb
             vg))
+          ((itypep adverb 'approximator)
+           (bind-variable 'adverb adverb vg))
           ((has-adverb-variable? vg vg-phrase adverb)
            (setq vg (bind-dli-variable 'adverb adverb vg)))
           (t vg)))))
@@ -1408,7 +1425,8 @@ there was an edge for the qualifier (e.g., there is no edge for the
        (cond
          (variable-to-bind t)
          ((and (itypep adverb 'intensifier) ;; compose will apply
-               (itypep adj-phrase 'qualifiable)) t)
+               (itypep adj-phrase 'qualifiable))
+          t)
          ((has-adverb-variable? adj adj-phrase adverb) t)
          ((and (is-basic-collection? adj)
                (value-of 'items adj) ;; is null for hyphenated-triple
@@ -1659,6 +1677,9 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
 (defparameter *in-scope-of-np+pp* nil
   "Flag to provide context for relative-location methods and others")
 
+(defparameter *suppress-pp-adjunct-to-np-gaps* t
+  "The error is ubiquitous in a long run. This converts it a format statement")
+
 (defun interpret-pp-adjunct-to-np (np pp)
   (cond
     ((null np) 
@@ -1694,6 +1715,7 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
                (maybe-extend-premod-adjective-with-pp np pp)
                (and *force-modifiers* 'modifier)
                (applicable-method compose np pp)
+               (applicable-method compose-of np pobj-referent)
                (is-domain-adjunctive-pp? np (right-edge-for-referent))
                (and (eq prep-word of)
                     (or (itypep np 'attribute)
@@ -1744,6 +1766,15 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
               (tr :np-pp-of-np-partonomic np pobj-referent)
               (setq np (bind-variable 'parts pobj-referent np)))
 
+             ((and (eq prep-word of)  ;; "thousands of years"
+                   (itypep np 'number)
+                   (itypep pobj-referent 'time-unit))
+              (make-amount-of-time np pobj-referent))
+
+             ((and (eq prep-word of)
+                   (itypep np 'amount-of-time))
+              (make-temporal-amount-of-stuff np pobj-referent))
+
              ((and (eq prep-word of)
                    (or (itypep np 'measurement) ;; "42% of all new cases"
                        (itypep np 'number) ;; "two of them"
@@ -1757,9 +1788,7 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
                        (itypep np 'ordinal))) ; "a seventh of the pie"
               (make-an-amount-of-stuff np pobj-referent))
 
-             ((and (eq prep-word of)
-                   (itypep np 'amount-of-time))
-              (make-temporal-amount-of-stuff np pobj-referent))
+             ;;########################################
 
              ((when (valid-method compose np pp)
                 ;; e.g. has-location + location : "the block at the left end of the row"
@@ -1769,8 +1798,8 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
                     result))))
 
              ((when (and (eq prep-word of)
-                         (valid-method compose np pobj-referent))
-                (let ((result (compose np pobj-referent)))
+                         (valid-method compose-of np pobj-referent))
+                (let ((result (compose-of np pobj-referent)))
                   (when result
                     (tr :compose-other-of np pobj-referent result)
                     result))))
@@ -1780,9 +1809,15 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
              
              ((maybe-extend-premod-adjective-with-pp np pp))
              
-             (t (break "fell through")
-              (when *force-modifiers*
-                (setq np (bind-variable 'modifier pobj-referent np)))
+             (t
+              (if *force-modifiers*
+                (setq np (bind-variable 'modifier pobj-referent np))
+                (let ((pattern (format nil "No analysis for ~s + ~s"
+                                       (string-for-edge (left-edge-for-referent))
+                                       (string-for-edge (right-edge-for-referent)))))
+                  (if *suppress-pp-adjunct-to-np-gaps*
+                    (format t "~&~a~%" pattern)
+                    (break "~a" pattern))))
               np ))))))))
 
 
@@ -1883,13 +1918,16 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
          (value-of 'theme vp) ;; don't allow intransitive reading
          (assimilate-subject-for-control-verb subj vp vp-edge)))
 
+    #+ignore ; blocks, e.g. "I am still the only one"), which starts with "I" + "am"
     ((or (and (eq (cat-name (itype-of  vp)) 'be)
-              ;; was itypep, but REMAIN (and other pseudo copulars) are subcategories of BE
-              ;; block "what are" as a transitive-clause-without-object
+              ;; was itypep, but REMAIN (and other pseudo copulars)
+              ;; are subcategories of BE. The point is to block "what are" as a
+              ;; transitive-clause-without-object
               (null (value-of 'predicate vp)))
          #+ignore(itypep vp 'do)) ;; block "what does" as a transitive-clause-without-object         
      ;; Blocking it blocks "Tell me what you want to do now"
      (return-from assimilate-subject nil))
+    
     ((itypep vp 'copular-predication-of-pp)
      (assimilate-subject-for-copular-predication subj vp vp-edge))
     ((itypep vp 'copular-predication)
@@ -2816,9 +2854,10 @@ Get here via look-for-submerged-conjunct --> conjoin-and-rethread-edges --> adjo
   (unless (and adjp pp)
     (return-from adjoin-pp-to-adjp nil))
   (when (itypep pp 'collection)
-    (warn-or-error "Adjoining adjp to a pp that is a collection")
-    ;; See treatment in adjoin-pp-to-vg
-    (return-from adjoin-pp-to-adjp nil))
+    (unless (collection-is-compound-name pp)
+      (warn-or-error "Adjoining adjp to a pp that is a collection")
+      ;; See treatment in adjoin-pp-to-vg
+      (return-from adjoin-pp-to-adjp nil)))
   
   (let* ((adjp-edge (left-edge-for-referent))
          (adjp-form (edge-form adjp-edge))

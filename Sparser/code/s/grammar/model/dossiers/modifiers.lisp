@@ -21,12 +21,6 @@
 (in-package :sparser)
 
 
-;; DAVID -- please figure out where you want these to go as adverbs
-(define-adverb "thus") ;; "we thus tested whether ..."
-(define-adverb "therefore") ;; "we therefore tested whether ..."
-(define-adverb "next") ;; "Next, we tested whether ..."
-
-
 ;;;----------------------
 ;;; Discourse adverbials
 ;;;----------------------
@@ -79,6 +73,9 @@
 (define-preposition "about") ;; but not point in having two edges here
 
 (define-approximator/determiner "around")
+
+(define-approximator/determiner "a bit") ; "just a bit more unpopular"
+(define-approximator/determiner "a little bit")
 
 (define-approximator/determiner "approximately")
 (define-approximator/determiner "at least")
@@ -263,19 +260,18 @@
 ;;;------------
 ;;; Sequencers
 ;;;------------
-;; See def. form: these are now adjectives
 
-(define-sequencer/determiner "first") ;; "it was first rinsed ..."
-(define-sequencer/determiner "last")
-(define-sequencer/determiner "previous")
-(define-sequencer/determiner "next") ;; We next considered ...
+(define-sequencer/adjective "first") ;; "it was first rinsed ..."
+(define-sequencer/adjective "last")
+(define-sequencer/adjective "previous")
+(define-simultaneous-adjective-adverb "next" ;; We next considered ...
+    :super-category 'sequencer)
 
-(define-sequencer/determiner "former")
-(define-sequencer/determiner "latter")
+(define-sequencer/adjective "former")
+(define-sequencer/adjective "latter")
         
 (unless (current-script :biology)
-  (define-sequencer/determiner "subsequent")
-  (define-sequencer/determiner "following"))
+  (define-sequencer/adjective "following"))
 
 (define-relative-position-preposition "after")
 (define-relative-position-preposition "before")
@@ -296,7 +292,7 @@
 
 ;;;---------- deictic, standalone
 
-;; (define-relative-time-adverb "ago") -- only works as a phrases
+(define-relative-time-adverb "ago") ;; really only good in th age-ago phrase
 (define-relative-time-adverb "already")
 (define-relative-time-adverb "as yet")
 (define-relative-time-adverb "currently")
@@ -309,7 +305,7 @@
 (define-relative-time-adverb "soon")
 (define-relative-time-adverb "still") ;; not just for time, though "still others" "standing still"
 (define-relative-time-adverb "thereafter") ;; "immediately thereafter" ?
-(define-relative-time-adverb "then") 
+(define-relative-time-adverb "then") ;<<<<<<<<<<<<<<<<<<<<
 (define-relative-time-adverb "yet") 
 
 
@@ -448,6 +444,7 @@
 (define-adverb "erroneously")
 (define-adverb "essentially")
 (define-adverb "ethically")
+(define-adverb "even")
 (define-adverb "evenly")
 (define-adverb "evidently")
 (define-adverb "evocatively")
@@ -726,6 +723,10 @@
 ;;should there be a rule for past participles --> adjectives
 ;; "given" as in "For a given cell, ..."
 
+;;--- antonym pairs /// need an account / use-case
+(define-adjective "different")
+(define-adjective "same")
+
 ;;;-----
 ;;; bulk of adjectives
 ;;;-----
@@ -800,7 +801,7 @@
 (define-adjective "derivative")
 (define-adjective "detailed")
 (define-adjective "dichotomous")
-(define-adjective "different") ;interesting
+
 (define-adjective "differential")
 (define-adjective "difficult")
 (define-adjective "direct")

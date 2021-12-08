@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2014-2019 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2014-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "no-brackets-protocol"
 ;;;   Module:  "drivers/chart/psp/"
-;;;  version:  August 2019
+;;;  version:  May 2021
 
 ;; Initiated 10/5/14, starting from the code for detecting bio-entities.
 ;; 10/29/14 added flags to turn off various steps so lower ones
@@ -83,14 +83,6 @@
    and we want to se the entire sentence context")
 
 
-(defparameter *warn-or-error-choice* :warn) ;; :error)
-
-(defun warn-or-error (datum &rest arguments)
-  (case *warn-or-error-choice*
-    (:error (apply #'error (cons datum arguments)))
-    (:warn (apply #'warn (cons datum arguments)))))
-
-
 
 ;;;------------------------------------------------
 ;;; keeping track of the sentence we're working on
@@ -119,12 +111,30 @@
   "Set in sweep-successive-sentences-from and retains its value
    until the next time that's called. Not dynamically bound.")
 
+(defparameter *truncate-current-string-at* 150)
+
 (defun current-string ()
-  (or (let ((s (identify-current-sentence :no-break)))
-        (when s (sentence-string s)))
-      *current-sentence-string*
-      *string-from-analyze-text-from-string*
-      ""))
+  "Return the string for the sentence we are currently analyzing.
+   Used principally to provide context in error messages.
+   If we're parsing a document where 'sentences' are not identifiable
+   or not even a sensible notion we can get unusably long error
+   strings, so check for that and truncate the really long ones"
+  (let* ((string
+          (or (let ((s (identify-current-sentence :no-break)))
+                (when s (sentence-string s)))
+              *current-sentence-string*
+              *string-from-analyze-text-from-string*
+              ""))
+         (length (length string)))
+    (if (> length *truncate-current-string-at*)
+      (string-append (subseq string 0 *truncate-current-string-at*) "...")
+      string)))
+
+(defun full-current-string ()
+  "When debugging we'll want to see the whole thing, regardless of
+   how long it is"
+  (let ((s (identify-current-sentence :no-break)))
+    (sentence-string s)))
 
 (defun identify-current-sentence (&optional no-break)
   "Identify and return the sentence that the parser is operating in
@@ -162,7 +172,7 @@
    Handles both reading document text and reading directly from strings
    or files.
    N.b. The initialization routines created a sentence already."
-  (declare (special *reading-populated-document*
+  (declare (special *reading-populated-document* *paragraphs-from-orthography*
                     *sentence-making-sweep* *new-sentence* *current-paragraph*)
            (optimize debug))
   (scan-next-position) ;; pull the source-start word into the chart
@@ -358,7 +368,7 @@
   "Called from sentence-processing-core once all of the parsing
    operations on the sentence have finished. Handles anaphora,
    discourse structure, data-collection for cards, and such."
-  (declare (special *index-cards*))
+  (declare (special *index-cards* *try-incrementally-resolving-pronouns*))
   (when *scan-for-unsaturated-individuals*
     (sweep-for-unsaturated-individuals sentence))
   (loop for e in (all-tts (starts-at-pos sentence) (ends-at-pos sentence))
@@ -368,8 +378,8 @@
      do (make-maximal-projection (edge-referent e) e))
   (identify-salient-text-structure sentence)
   (when *do-anaphora*
-    (unless *constrain-pronouns-using-mentions*
-      ;; defer 'till interpret-treetops-in-context runs
+    (unless (or *constrain-pronouns-using-mentions* ; defer 'till interpret-treetops-in-context runs
+                *try-incrementally-resolving-pronouns*) ; already done
       (handle-any-anaphora sentence)))
   (when (and *readout-relations* *index-cards*)
     (push `(,(sentence-string sentence) 
@@ -378,6 +388,7 @@
             ,(assess-relevance sentence))
           *all-sentences*))
   (save-missing-subcats)
+  (clear-note-edge-cache)
   (when *do-discourse-relations*
     (establish-discourse-relations sentence)))
   

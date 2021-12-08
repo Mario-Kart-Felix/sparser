@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 1994-2005,2013-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1994-2005,2013-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "ref"
 ;;;   Module:  "model;core:pronouns:"
-;;;  version:  October 2020
+;;;  version:  September 2021
 
 ;; 3.0 (7/11/94) completely redone from scratch
 ;; 4.0 (5/8/95) in progress ..5/22
@@ -38,39 +38,55 @@
 ;; (trace-paragraphs) ;; period hook
 
 
+(defparameter *work-on-pronouns* nil
+  "Gate to look deeper into unhandled cases")
+
+
 ;;;------------------------
 ;;; doing pronouns in-line
 ;;;------------------------
 
 #| Deferencing pronouns in-line is to do them as soon as there
-enough information to establish their context
+enough information to establish their context.
 
+The process is run out of sweep-sentence-treetops and controlled
+by the status of *try-incrementally-resolve-pronouns*
+The existence of a pronoun or pronouns in a sentence is noted in
+the sweep/form-dispatch portion of the sweep operation where
+we decide what to do with any sort of np.
 |#
 
-(defparameter *try-incrementally-resolve-pronouns* nil
-  "Controls how we get here in the layout sweep")
-
+;;--- wait till whole sentence is swept
 (defvar *pending-pronoun* nil
-  "Holds the edge past to enqueue-pronoun and handled by xxx")
+  "Holds the edge passed to enqueue-pronoun for later processing")
 
 (defun enqueue-pronoun (edge-over-pn)
-  "Called from sweep-sentence-treetops when it walks over a pronoun
-   we could potentially dereference"
-  ;;/// trace
+  "Called in the np handler of sweep-sentence-treetops when it walks
+   over a pronoun that we could potentially dereference.
+   At the end of the sweep we check for *pending-pronoun* and
+   call attempt-to-dereference-pronoun"
   (setq *pending-pronoun* edge-over-pn))
 
 
-(defparameter *record-rather-than-try-pronoun* t)
-
-(defun attempt-to-dereference-pronoun (edge-over-pn layout)
-  ;; Get the discriminiating properties of the pronoun
-  ;; If 3d person note the candidates based on same-sentence
-  ;; topology.
-  (push-debug `(,edge-over-pn ,layout))
-  (if *record-rather-than-try-pronoun*
-    (format t "Pronoun ~a in ~%~s~%" edge-over-pn (current-string))
-    (break "Pn at ~a" edge-over-pn)))
-
+(defun handle-incremental-pronoun (edge properties layout)
+  "Called when the pronoun is encountered in sweep-sentence-treetops, 
+   which is after chunking and before any forest-level operations.
+   Get the discriminiating properties of the pronoun.
+   If 3d person, note the candidates based on same-sentence topology.
+   Borrows liberally from handle-any-anaphora which is designed to run
+   during post-analysis-operations"
+  (tr :anaphora-looking-at-edge edge)
+  (let ((sentence (bkptr layout))
+        (current-subject (subject layout)))
+    (cond
+      ((memq :subject properties)
+       (let ((previous-subject (subject-of-previous-sentence sentence)))
+         (when previous-subject
+           (transfer-edge-data-to-edge previous-subject edge))))
+      (t (when *work-on-pronouns*
+           (break "Need next case. Pronoun = ~a" edge))
+         nil))))
+         
 
 
 ;;;--------------------------------
@@ -80,8 +96,11 @@ enough information to establish their context
 ;  (f "/Users/ddm/ws/R3/ws/Mitre December texts/passage 1.txt")
 
 (defun handle-any-anaphora (sentence)
-  ;; called from post-analysis-operations with the sentence currently being
-  ;; analyzed. 
+  "Called from post-analysis-operations with the sentence currently being
+   analyzed. Depends on *do-anaphora* flag being up and the flag
+   *constrain-pronouns-using-mentions* being down. Goes through all of
+   the pronouns encountered in the current sentence."
+  (break "invoking handle-any-anaphora")
   (let ((edge/s (there-are-pronouns))
         (defNPs (pending-definite-references sentence)))
     (when defNPs

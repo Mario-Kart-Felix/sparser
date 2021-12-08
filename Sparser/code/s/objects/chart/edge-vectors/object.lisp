@@ -76,7 +76,7 @@
 
 (defun edge-character-offsets (edge)
   (values (pos-character-index (pos-edge-starts-at edge))
-          (pos-character-index (pos-edge-starts-at edge))))
+          (pos-character-index (pos-edge-ends-at edge))))
 
 ;;;--------------------------------
 ;;; searching through edge vectors
@@ -144,6 +144,16 @@
   (let ((vector (ev-edge-vector ev)))
     (loop for i from 0 upto (1- (ev-number-of-edges ev))
        collect (aref vector i))))
+
+(defun ev-edges (ev)
+  "Return a list of all the edges on this edge vector.
+   Filtering out any literals (edges whose category is a word)."
+  (when ev
+    (let ((edges (all-edges-on ev)))
+      (loop for edge in edges
+         unless (literal-edge? edge)
+         collect edge))))
+
 
 
 (defgeneric connected-fringe (ev)
@@ -431,6 +441,20 @@
       (when (eq (edge-category edge)
                 category)
         (return edge)))))
+
+
+(defgeneric includes-edge-over-literal? (position)
+  (:documentation "Are any of the edges starting at this position
+    edges over a literal?")
+  (:method ((e edge))
+    (includes-edge-over-literal? (edge-starts-at e)))
+  (:method ((p position))
+    (includes-edge-over-literal? (pos-starts-here p)))
+  (:method ((ev edge-vector))
+    (loop for edge in (all-edges-on ev)
+       when (literal-edge? edge)
+       return t
+       finally (return nil))))
 
 
 ;;--- editing the vector

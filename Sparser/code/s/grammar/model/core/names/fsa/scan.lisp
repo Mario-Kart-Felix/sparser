@@ -3,7 +3,7 @@
 ;;;
 ;;;     File:  "scan"
 ;;;   Module:  "model;core:names:fsa:"
-;;;  Version:  February 2020
+;;;  Version:  June 2021
 
 ;; initiated 5/15/93 v2.3 on a few pieces of names:fsa:fsa8
 ;; 5/21 fixed a bug, 5/26 added traces
@@ -74,7 +74,7 @@
   (let* ((cap-state (pos-capitalization position-before))
          (position-after (chart-position-after position-before))
          (bracket (bracket-closing-segment-at position-before))
-         (edge (right-treetop-at/edge position-before)))
+         (edge (right-treetop-at/only-edges position-before)))
 
     ;;(break "continues, before = ~a" position-before)
     (tr :cap-seq-continues/status cap-state bracket)
@@ -84,10 +84,18 @@
 
       (cond
         ((and edge ;; probably the result of the polyword pass
-              (edge-p edge) ;; accessor returns the word if no edge
+              (edge-p edge) ;; vs. an edge-vector for :multiple-initial-edges
               (capitalized-instance position-before))
+         ;;//// "FORWARD-LOOKING INFORMATION Except for statements"
+         ;; 'except for' is a preposition. We should stop the scan here
          (tr :cont-caps-edge edge)
          (cap-seq-continues-from-here? (pos-edge-ends-at edge)))
+
+        ((and edge (edge-p edge)) ;; "Chupacabra vs. The Alamo"
+         (cond
+           ((eq cap-state :lower-case)
+            position-before)
+           (t (cap-seq-continues-from-here?/aux cap-state position-before))))
         
         (bracket   ;; "of"  "."
          (if *pnf-scan-respects-segment-boundaries*
@@ -228,12 +236,11 @@
 
       (else
         (tr :lc-introduces-]-but-actual-doesnt position-before)
-        (;;checkout-continuation-for-non-punctuation
-         non-boundary-continuation/bracket-checked
+        (checkout-continuation-for-non-punctuation
          position-before
-         position-after
+         'non-boundary-continuation/bracket-checked
          cap-state)
-        ))))
+        position-before))))
 
 
 
@@ -254,7 +261,8 @@
   ;; we're supposed to ignore it.
 
   (tr :non-boundary-continuation position-before)
-  (if bracket
+  (if (and bracket
+           (rank-of-bracket bracket)) ; nil check -- not being mainitained
     (if (= 0 (rank-of-bracket bracket))
       position-before
       (non-boundary-continuation/bracket-checked
@@ -315,8 +323,11 @@
 ;;;-------------
 
 (defun checkout-punctuation-for-capseq (position-before)
-  ;; the terminal at this position is punctuation of some sort.
-  ;; Decide what to do on a case-by-case basis
+  "The terminal at this position is punctuation of some sort.
+   Decide what to do on a case-by-case basis. If we don't want to
+   include the punctuation in the span then we return 'position-before'
+   which will terminate the scan. Otherwise we let the case-by-case
+   function make that determination."
   (tr :checkout-punctuation-for-capseq position-before)
   (let ((punct (pos-terminal position-before)))
     (cond
@@ -337,12 +348,16 @@
       (checkout-forward-slash-for-capseq position-before))
      ((eq punct word::\') 
       (checkout-single-quote-for-capseq position-before))
+     ((word-never-in-ns-sequence punct)
+      position-before)
      (t
+      (when *debug-pnf*
+        (break "Continue PNF span over the character ~a ?" punct))
       position-before))))
 #|
           ((eq punct word::\,) (checkout-comma-for-capseq position-before))
      |#
-
+;;####################################################33
 
 (defun checkout-period-for-capseq (position)
   ;; there is a period at this position, we want to know whether
@@ -350,9 +365,9 @@
   ;; (we know it's capitalized), in which case we have an edge formed
   ;; over the two and go on.  We also check whether the letter initiates
   ;; a polyword and if that succeeds, we give it priority
-
-  (let ((position-after-initial-check
-         (check-for-initial-before-position position)))
+  (multiple-value-bind (position-after-initial-check
+                        subsumed-sentence-period?)
+         (check-for-initial-before-position position)
 
     (if (null position-after-initial-check)
       (then
@@ -368,8 +383,10 @@
       (etypecase position-after-initial-check
         (edge
          ;; it found a single-letter and formed an 'initial' edge with it
-         (tr :pnf/initial (chart-position-after position))
-         (cap-seq-continues-from-here? (chart-position-after position)))
+         (tr :pnf/initial (chart-position-after position) subsumed-sentence-period?)
+         (if subsumed-sentence-period?
+           position
+           (cap-seq-continues-from-here? (chart-position-after position))))
         (position
          ;; a polyword that the letter initiated succeeded
          (tr :pnf/pw position-after-initial-check)
@@ -380,6 +397,7 @@
   ;; if the word at the next position is capitalized, and the hyphen
   ;; directly connects them then accept it, otherwise let it through
   ;; since a separated hyphen is often standing in for a dash
+  (declare (special *hyphen-seen*))
 
   (if (null (pos-preceding-whitespace position))
     (let ((next-position (chart-position-after position)))
@@ -388,7 +406,10 @@
 
       (if (and (null (pos-preceding-whitespace next-position))
                (word-at-this-position-is-capitalized? next-position))
-        (cap-seq-continues-from-here? next-position)
+        (then
+          (setq *hyphen-seen* position)
+          (cap-seq-continues-from-here? next-position))
+        
         position))
     position ))
 
@@ -459,8 +480,10 @@
   ;; In all these cases we just pass judgement on whether to continue
   ;; the sequence -- handling the meaning of these cases is left to
   ;; classification.
+  ;;   Good list of chars in the word-never-in-ns-sequence function
   (declare (special *lc-person-words*))
-
+  (unless *lc-person-words* (populate-lc-person-words))
+;;#########################################################################
   (let ((next-position (chart-position-after position)))         
     (unless (has-been-status? :scanned next-position)
       (scan-next-position))
@@ -469,27 +492,47 @@
           (previous-word (pos-terminal (chart-position-before position)))
           (caps-state (pos-capitalization next-position)))
 
-      (cond ((or (eq word::\s (pos-terminal next-position))
-                 (eq word::|ll| (pos-terminal next-position)))
-             ;; leave the "'s" to be gotten later as a concatenation
+      (cond ((or (eq next-word word::\s)
+                 (eq next-word word::|ll|)
+                 (eq next-word word::\,) ;; "the 'Sunday Independent',"
+                 (eq next-word word::open-paren) ;; "the 'Manchester Guardian'(as it then was)"
+                 (eq next-word word::close-paren) ;; "a book ('Synopsis Stirpium Hibernicarum')"
+                 (eq next-word word::colon) ;; #505 " 'Hercules Tire and Auto': the same five-star..."
+                 (eq next-word word::open-square-bracket)
+                 (eq next-word word::close-square-bracket)
+                 (eq next-word *the-punctuation-hyphen*)
+                 (eq next-word *newline*))
+             ;; Return and leave the "'s" to be gotten later as a concatenation
              position)
 
+            ((and (word-at-this-position-is-capitalized? next-position) ; "O'Gill", "Baha'i"
+                  (null (pos-preceding-whitespace next-position)))
+             (cap-seq-continues-from-here? next-position))
+
+            ((and (word-at-this-position-is-capitalized? next-position)
+                  (eq :single-capitalized-letter ; "Chain O' Lakes
+                      (pos-capitalization (chart-position-before position))))
+             (cap-seq-continues-from-here? next-position))
+            
             ((memq next-word *lc-person-words*)
              ;;//// There's a bug here in the threading that happens
              ;; in this recursive call. Given "Mas'ud" the scan strands
              ;; that lowercase follow-on
              (cap-seq-continues-from-here? next-position))
-            
+
             ((and previous-word ;; "Workers' Party"
                   (word-ends-in-s previous-word))
-             (cap-seq-continues-from-here? next-position))
-
-            ((capitalized (pos-terminal next-position))
              (cap-seq-continues-from-here? next-position))
 
             ((and (eq caps-state :lower-case)
                   *arabic-names*)
              (cap-seq-continues-from-here? next-position))
+
+            ((and  (word-at-this-position-is-capitalized? next-position)
+                   *acumen*)
+             ;; if we're sentence terminal -- i.e. the scan didn't get the next pos
+             ;; then it could well be a typo: "what are you giving up for Lent' Every ..."
+             position)
 
             (t
              (break "new case for single-quote while looking to extend ~

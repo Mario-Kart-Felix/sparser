@@ -4,7 +4,7 @@
 ;;;
 ;;;     File:  "examine"
 ;;;   Module:  "model;core:names:fsa:"
-;;;  version:  February 2021
+;;;  version:  November 2021
 
 ;; initiated 4/1/94 v2.3
 ;; 0.1 (4/23) fixed change of where :literal-in-a-rule is in Sort-out-multiple-
@@ -94,6 +94,10 @@
   "Breaks just before we go into the loops that set the 
    internal state locals.")
 
+(defparameter *break-after-examining* nil
+  "Breaks just after that loop so we can look at the locals
+   before taking any action")
+
 
 ;;;-------------------------------------
 ;;; general property for the easy cases
@@ -128,14 +132,14 @@
    be stopped immediately. The value returned with the throw ('result' in
    the caller) is an indicator of how to proceed.
    The normal return is expected to be an individual of type name."
-  
+  (declare (special *hyphen-seen*))
   (tr :examine-capitalized-sequence starting-position ending-position)
   (let ((count 0)
         (position starting-position)
         tt  tt-category  label  items  next-position already-pushed?
         name-state  edge-labeled-by-word multiple-treetops
-        &-sign  initials?  person-version  inc-term?  of  and  the  slash
-        generic-co co-activity koc?  ordinal  flush-suffix 
+        &-sign  initials?  person-version person-prefix  inc-term?  of  and  the  slash
+        generic-co co-activity koc?  ordinal  flush-suffix  tt-before-hyphen hyphen
         country  title  weekday music-note month  other
         location-head  location  hurricane)
     
@@ -183,7 +187,9 @@
                      ;; no 'prefix' to be rendered into a name so we don't
                      ;; set 'flush-suffix'.
                      (return-from check-cases nil))))
-                  
+
+                (word::hyphen ;; see reify-hyphenated-pair
+                 (setq hyphen position))
                   
                 (word::|and|
                   (if (reason-to-terminate-name-at-and? items)
@@ -220,7 +226,6 @@
                    ;; label on an edge
                    (cond
                     ((only-known-as-a-name tt))
-                      
                     (edge-labeled-by-word
                      (cond ((edge-for-literal? edge-labeled-by-word)
                             (when (eq (edge-category edge-labeled-by-word)
@@ -234,15 +239,16 @@
                            (t 
                             (break "New case for a word labeling an edge in a ~
                                     capitalized sequence:~%~A" tt))))
-                      
                     ((function-word? tt))
-                      
-                    (t
+                    (t 
                      (when *break-on-new-categories-in-cap-seq*
                        (break "New case for a known word in a capitalized ~
                                sequence:~%~A" tt))))
                      
-                     
+                   ;; If we are running in any modern configuration (~ after 2017)
+                   ;; there will never be an unknown word. Every word gets some
+                   ;; sort of interpretation even if it's just a default.
+
                    ;; new word because it doesn't have a rules field.
                    (else
                     (setq already-pushed? t)
@@ -354,7 +360,7 @@
                
              (category::country  ;; "American National Standards Institute"
               (if country
-                (double-country-check tt items count)
+                (double-country-check tt items count ending-position)
                 (setq country `(,count . ,(edge-referent tt)))))
 
              (category::hurricane  ;; "Hurricane Adrian"
@@ -362,14 +368,12 @@
                
              (category::ordinal   ;; e.g. in "Thomas E. Paisley III"
               (setq ordinal `(,count . ,(edge-referent tt))))
-               
+
              (category::person-prefix  ;; e.g. "Mr."
-              ;; we don't want this included as part of the name, so we use
-              ;; the escape route through the catch in Classify-&-record-span
-              ;; and indicate that this part of the sequence should be rejected
-              ;; from the proper name, leaving the rest of it to be picked up
-              ;; again and resumed in a moment by an independent call to PNF.
-              (throw :leave-out-prefix (pos-edge-ends-at tt)))
+              (when (and *hyphen-seen*
+                         (eq *hyphen-seen* (pos-edge-ends-at tt)))
+                (setq tt-before-hyphen tt))
+              (setq person-prefix (cons count (edge-referent tt))))
                
              (category::person-version    ;; e.g. "Jr."
               (setq person-version (cons count (edge-referent tt))))
@@ -387,7 +391,9 @@
               (unless items
                 (tr :throwing-out-prefix tt)
                 (throw :leave-out-prefix (pos-edge-ends-at tt))))
-               
+
+             #+ignore ;; not clear how fits in multple sweeps
+                 ;; "That'll Be Day" 
              (category::be  ;; "Is AppleTalk ..."
               (if items
                 (then
@@ -403,26 +409,37 @@
 
              (category::month
               (setq month (cons count (edge-referent tt))))
+
+             (category::motif-trigger
+              (spot-motif-trigger tt))
                
              (otherwise
-              (or (valid-name-category? tt-category)
-                  (if *break-on-new-categories-in-cap-seq*
-                    (break "New category in capitalized sequence: ~A" label)
+              (unless (or (form-category? (edge-form tt)) ; approximators
+                          (itypep (edge-referent tt) 'pronoun)
+                          (literal-edge? tt)) ; virtually only function words
+                (or (valid-name-category? tt-category) ; checks a value on category's plist
                     (else
+                      (when *break-on-new-categories-in-cap-seq*
+                        (break "New category in capitalized sequence: ~A" label))                      
                       ;; Want to be able to provide these words with another
                       ;; reading as a name-word. Record the treetop edge rather
                       ;; than just the category so we can get the needed information.
-                      (setq other (cons count tt))))))))
-         
-         ;; That was the end of check-cases flet function,
+                      ;; The conversion is done by referents-of-list-of-edges when
+                      ;; it is going through the list of items in the call here
+                      ;; to categorize-and-form-name and the bottom of this function.
+                      (push (cons count tt) other)))))
+             
+             )) ;;  end of check-cases flet function,
 
          (label-for (tt)
+           "What kind of thing is this treetop, i.e. which clause of check-cases
+            should it go through"
            (typecase tt 
              (edge
               (cond
                 ((word-p (edge-category tt))
                  (setq edge-labeled-by-word tt
-                            tt-category (edge-category tt))
+                       tt-category (edge-category tt))
                  :word)
                 ((polyword-p (edge-category tt))
                  :polyword)
@@ -471,6 +488,7 @@
          
          (tr :examining label tt)          
          ;; Look at the tt and set flags (indicators of the type of name)
+
          (if multiple-treetops
            (dolist (mtt multiple-treetops)
              ;; collect evidence from each of the cases
@@ -508,6 +526,9 @@
         ;; Need to review the item accumulator to see why name-words
         ;; are being accumulated twice
 
+        (when tt-before-hyphen
+          (setq items (reify-hyphenated-pair items tt-before-hyphen hyphen)))
+
         (when location
           (when (= count (caar location))
             (setq location-head (cdar location))))
@@ -539,12 +560,16 @@
          (when music-note
           (throw :abort-examination-not-a-name
             `(:not-a-name ,ending-position)))
+         
+         
+         (when *break-after-examining*
+           (break "Finished examining the capitalized span ~s"
+                  (extract-characters-between-positions starting-position ending-position)))
 
-
-        (let ((name
+         (let ((name
                (categorize-and-form-name (referents-of-list-of-edges items)
                                          name-state country title
-                                         &-sign initials? person-version
+                                         &-sign initials? person-version person-prefix
                                          inc-term? of and the generic-co co-activity
                                          koc? ordinal location-head hurricane
                                          other)))
@@ -562,7 +587,7 @@
 
 (defun categorize-and-form-name (items 
                                  name-state country title
-                                 &-sign initials? person-version
+                                 &-sign initials? person-version person-prefix
                                  inc-term? of and the generic-co co-activity
                                  koc? ordinal location-head hurricane
                                  other )
@@ -577,7 +602,7 @@
   ;; classify-&-record-span using the fn do-referent-and-edge  
 
   (when *break-before-creating-name*
-    (push-debug `(,items)) ;; more flags?
+    (push-debug `(,items)) ;; include more flags?
     (break "Look at the locals in categorize-and-form-name~
           ~%  items = ~a" items))
 
@@ -607,6 +632,9 @@
                   (ordinal ;; this is weak evidence --> limited partnerships
                    category::person-name )
                   (person-version category::person-name)
+                  ((and person-prefix ; the prefix 'Right'
+                        (eql 1 (car person-prefix)))
+                   category::person-name)
                   ;;////(hurricane category::hurricane) ;; sl dependent
                   (t category::name)))
           name )
@@ -617,12 +645,26 @@
       ;;   original that started eariler. 
       ;;--- Look for things that would restructure the elements of the name
       
-      (when other ;; "George K. Ball" -- where "ball" is an ordinary word
+      (when other
+        ;; As in "George K. Ball" -- where "ball" is an ordinary word
+        ;; but we want it to also act as a name-word for purposes of being
+        ;; in the name
+        (when (typep (car other) 'integer) ;; e.g. (2 . #<edge ...>)
+          (setq other (list other)))
+        (loop for pair in other
+           as item-index = (car pair)
+           as edge = (cdr pair)
+           as ref = (edge-referent edge)
+           unless (eq (form-cat-name edge) 'preposition)
+           do (let ((nw (find/make-silent-nw-for-word-under-edge edge)))
+                (setq items (substitute nw ref items)))))
+        #+ignore ; original for singleton
         (let* ((item-index (car other))
                (edge (cdr other))
                (ref (edge-referent edge))
                (nw (find/make-silent-nw-for-word-under-edge edge)))
-          (setq items (substitute nw ref items))))
+          (setq items (substitute nw ref items)))
+
 
       (when ordinal  ;; e.g. "III", "Fourth"
         ;; a cons of the count and an ordinal unit
@@ -654,6 +696,12 @@
             (error "Oddly formatted person-version: ~a" person-version))
           (setq person-version (cdr person-version))))
 
+      (when person-prefix ;; 'St.'
+        (if (= (car person-prefix) 1)
+          (setq items (cdr items))
+          #+ignore(warn-or-error "person-prefix isn't initial: ~a" person-prefix))
+        (setq person-prefix (cdr person-prefix)))
+
       ;;--- Make the name
       (tr :name-category-is category)
       (setq name
@@ -668,7 +716,8 @@
               (category::person-name
                (if and
                  (make-a-collection-of-person-names items and person-version)
-                 (make-person-name-from-items items :version person-version)))
+                 (make-person-name-from-items
+                  items :version person-version :prefix person-prefix)))
               (category::company-name
                (make-company-name-from-items items
                  :&-sign &-sign          :ordinal ordinal
@@ -682,6 +731,10 @@
 ;;     Hurricane SL development interrupted. Should design and build the
 ;;   general pattern for this instead. Perhaps some code-generating macros
               ))
+      (unless name
+        (when *debug-pnf*
+          (break "No name choosen for items: ~a" items))
+        (make-uncategorized-name-from-items items :and and))
       name ))))
 
 

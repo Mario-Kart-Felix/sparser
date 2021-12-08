@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1991-2000,2010-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 1991-2000,2010-2021 David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2007-2009 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;      File:  "full grammar"
 ;;;    Module:  "init/config/grammars/"
-;;;   version:  September 2020
+;;;   version:  July 2021
 
 ;; This records every grammar module that is currently defined,
 ;; even though loading them all at once could lead to an inconsistent
@@ -239,6 +239,8 @@
 
 (include-grammar-module  *sublanguages*)
 
+(include-grammar-module *acumen-motifs*)
+
 (include-grammar-module  *pct*)
 
 (include-grammar-module  *whos-news*)
@@ -252,12 +254,14 @@
 
 (include-grammar-module  *internet*)
 
-(include-grammar-module  *ambush*) 2/21/19 too many fragments
+(include-grammar-module  *ambush*) ; 2/21/19 too many fragments
 (include-grammar-module  *call-signs*)
 (include-grammar-module  *checkpoint-ops*)
 (include-grammar-module  *disease*) ; disease too tightly entwined w/ bio types
 (include-grammar-module  *biology*)
 (include-grammar-module  *score-stats*)
+(include-grammar-module *score-verbs*)
+
 (include-grammar-module  *hurricanes*)
 (include-grammar-module  *musica*)
 (include-grammar-module  *generic-military*)

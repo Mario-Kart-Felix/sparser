@@ -57,8 +57,8 @@ subcategorization-pattern is a daughter of linguistic, abstract
   :mixins (with-actor with-patient)
   ;; we really don't want to restrict these variables
   ;;  -- the subject and theme can be endurants, perdurants, abstract
-  :binds ((subject top)
-          (object top))
+  :binds ((subject)
+          (object))
    :realization
     (:s subject
      :o object
@@ -441,11 +441,6 @@ subcategorization-pattern is a daughter of linguistic, abstract
  to gentives ('the population of a city', 'the city's population'),
  to this is weak choice of variables"
   :realization (:of theme))
-
-(define-mixin-category takes-of-prototype-description
-  :mixins (with-prototype-description) 
-  :realization (:of prototype))
-
 
 (define-mixin-category takes-as
   :specializes subcategorization-pattern

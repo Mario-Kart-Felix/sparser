@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2015-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2015-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "da-rules"
 ;;;   Module:  "grammar;rules:DA:"
-;;;  Version:  January 2020
+;;;  Version:  October 2021
 
 ;; initiated 9/18/15 for da patterns and interpreters that had been
 ;; stashed in biology. Small tweaks and additions of the same kind
@@ -849,6 +849,23 @@
      (bind-dli-variable 'appositive-description (edge-referent np-edge) (edge-referent base-np))
      )))
 
+
+(define-debris-analysis-rule np-comma-vp
+    :pattern ( np "," vp )
+    :action (:function comma-between-np-vp first second third))
+
+(defun comma-between-np-vp (np-edge comma-edge vp-edge)
+  "In earlier incremental version this was done by a CA action on
+   the comma. This is doing what check-for-appositive-debris does though
+   it has the edges in its hand"
+  (let ((rule (multiply-edges np-edge vp-edge)))
+    (when rule
+      (let ((edge (make-completed-binary-edge np-edge vp-edge rule)))
+        (setf (edge-constituents edge) (list np-edge comma-edge vp-edge))
+        edge))))
+      
+
+
 (define-debris-analysis-rule np-comma-subj-relative
     :pattern (np "," subject-relative-clause)
     :action (:function np-comma-subj-relative first second third))
@@ -1503,10 +1520,9 @@
   (declare (ignore comma))
   (create-event-relation s event-relation (edge-referent sconj)))
 
-(define-debris-analysis-rule s-with-np-conj-pp
-    :pattern (s pp)
-    :action (:function np-conj-pp first second))
 
+
+;;--- locus of adjunctive-attachments
 
 (define-debris-analysis-rule adjunctive-pp-on-transitive-clause-without-object
   :pattern (transitive-clause-without-object pp)
@@ -1514,6 +1530,10 @@
 
 (define-debris-analysis-rule adjunctive-pp-on-vp
   :pattern (vp pp)
+  :action (:function add-adjunctive-pp first second))
+
+(define-debris-analysis-rule adjunctive-pp-on-vg
+  :pattern (vg+ed pp) ;; "disturbed by the noise"
   :action (:function add-adjunctive-pp first second))
 
 #+ignore ;; needs to be folded into the rule above
@@ -1527,7 +1547,9 @@
   :action (:function add-adjunctive-pp first second))
 
 
-;;--- locus of adjunctive-attachments
+(define-debris-analysis-rule s-with-np-conj-pp
+    :pattern (s pp)
+    :action (:function np-conj-pp first second))
 
 (define-debris-analysis-rule np-conj-pp
     ;; for the case where the rightmost NP in a conjunction can
@@ -1622,10 +1644,13 @@
 (define-debris-analysis-rule s-comma-np-and-np
   :pattern ( pp "," np  and np)  
   :action (:function
-           s-comma-np-comma-and-np
-           first second third  nil fifth sixth))
+           s-comma-np-and-np
+           first second third fourth fifth))
 
-(defun s-comma-np-comma-and-np ( s comma-1 np-1 comma-2 and-wd np-2)
+(defun s-comma-np-and-np (s comma-1 np-1 and-wd np-2)
+  (s-comma-np-comma-and-np s comma-1 np-1 nil and-wd np-2))
+
+(defun s-comma-np-comma-and-np (s comma-1 np-1 comma-2 and-wd np-2)
   (declare (ignore comma-1 comma-2))
   (let* ((target (find-target-satisfying
                   (right-fringe-of s)
@@ -2356,6 +2381,26 @@ assumed. |#
 
 
 
+;;;-----------------------
+;;; 'unreliable' DA rules
+;;;-----------------------
+#| We know that some applications will not get the attention
+ to rules and lexicon that other will. Acumen is a prime case
+ where the base parses are too erratic to support the surgury
+ done by the tuck routines and its very unlikely that we'll
+ ever improve it. The purpose of this is to block the warnings
+ that would bring these to our attention, which we're not going
+ to supply. |#
 
+(defparameter *unreliable-da-rules*
+  (list
+   (da-rule-named 'attach-comma-appositive-np-under-pp)
+   (da-rule-named 'np-conj-pp)
+   (da-rule-named 's-with-np-conj-pp)
+   ))
 
-
+(defun DA-rule-not-reliable (da-rule)
+  "Called in tuck-new-edge-under-already-knit where its effect
+   is to block a warning"
+  (when *acumen*
+    (memq da-rule *unreliable-da-rules*)))

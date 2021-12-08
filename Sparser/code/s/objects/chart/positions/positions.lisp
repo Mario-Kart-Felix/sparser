@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1990-1995,2011-2016  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1990-1995,2011-2021  David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2007 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "positions"
 ;;;   Module:  "objects;chart:positions:"
-;;;  Version:  February 2016
+;;;  Version:  February 2021
 
 ;; 1.1 (2/11 v1.8.1)  Added Position-precedes
 ;;     (5/12/93 v2.3) commented out an unfinished fn.
@@ -148,6 +148,45 @@
 (defun has-been-status? (keyword p)
   ;; Return non-nil if this position has been the given status.
   (member keyword (pos-status-lifo p)))
+
+#| Grep for '(set-status'
+analyzers/fsa/edges.lisp:  (set-status :edge-fsas-done position-scanned)
+analyzers/fsa/words.lisp:  (set-status :word-fsas-done position-before)
+analyzers/fsa/words.lisp:  (set-status :word-fsas-done position)
+analyzers/ha/place-brackets.lisp:  (set-status :boundaries-introduced
+analyzers/ha/place-brackets.lisp   (set-status :brackets-from-prior-edge-introduced
+analyzers/ha/place-brackets.lisp:  (set-status :brackets-from-prior-word-introduced
+analyzers/ha/place-brackets.lisp:  (set-status :brackets-from-edge-introduced
+analyzers/ha/place-brackets.lisp:  (set-status :brackets-from-word-introduced
+analyzers/psp/assess/terminal-edges.lisp: (set-status :preterminals-installed position-scanned)
+analyzers/psp/complete/complete-ha.lisp:  (set-status :word-completed position-before))
+analyzers/psp/scan/scan.lisp:  (set-status :scanned position)
+drivers/chart/psp/adjudicators.lisp:  (set-status :]-from-edge-after-checked pos-before)  ;; <<< status
+drivers/chart/psp/adjudicators.lisp:  (set-status :[-from-edge-after-checked pos-before) ;; <<< status
+drivers/chart/psp/adjudicators.lisp:  (set-status :]-from-edge-before-checked
+drivers/chart/psp/adjudicators.lisp:  (set-status :[-from-edge-before-checked 
+drivers/chart/psp/c3-protocol.lisp: (set-status :]-from-word-after-checked position-before)
+drivers/chart/psp/multi-scan.lisp:  (set-status :polywords-check position-before)
+drivers/chart/psp/scan.lisp:  (set-status :]-from-word-after-checked
+drivers/chart/psp/scan.lisp:  (set-status :[-from-word-after-checked
+drivers/chart/psp/scan.lisp:  (set-status :polywords-check
+drivers/chart/psp/scan.lisp:  (set-status :no-space-patterns
+drivers/chart/psp/scan.lisp:  (set-status :word-level-fsa-triggers
+drivers/chart/psp/scan.lisp:  (set-status :pnf-preempted
+drivers/chart/psp/scan.lisp:  (set-status :word-level-actions
+drivers/chart/psp/scan.lisp:  (set-status :scanned-from-word-actions
+drivers/chart/psp/scan.lisp:  (set-status :word-level-actions-no-terminals
+drivers/chart/psp/scan.lisp:  (set-status :]-from-edge-after-checked
+drivers/chart/psp/scan.lisp:  (set-status :edge-fsa-checked
+drivers/chart/psp/scan.lisp:  (set-status :]-from-prior-word-checked
+drivers/chart/psp/scan.lisp:  (set-status :[-from-prior-word-checked position-after)
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-checked starting-position)
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-preempted starting-position)
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-preempted starting-position)
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-checked
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-checked starting-position)
+grammar/model/core/names/fsa/driver.lisp:  (set-status :pnf-checked starting-position)
+|#
 
 
 ;;;------------

@@ -3,7 +3,7 @@
 ;;; 
 ;;;     File:  "sweep"
 ;;;   Module:  "drivers;forest:"
-;;;  Version:  January 2021
+;;;  Version:  March 2021
 
 ;; Initiated 8/30/14. To hold the new class of containers to support
 ;; analysis and discourse structure to go with the new forest protocol
@@ -45,11 +45,11 @@
    notice their form, and stash them into state variables 
    that will be consulted during the island-driven parsing that follows."
   (declare (special *incrementally-resolve-pronouns* *pending-pronoun*
-                    *nps-seen*
+                    *nps-seen*  count-past-verb
                     subject-seen? main-verb-seen?)) ;; state varibles in forest-gophers
   (tr :sweep-sentence-treetops start-pos end-pos)
   (clear-sweep-sentence-tt-state-vars)
-  (let ((rightmost-pos start-pos)
+  (let ((rightmost-pos start-pos) ; tracks how far through sentence we are
         (layout (make-sentence-layout sentence))
         (sentence-initial? t)
         (subject-seen? nil)
@@ -59,10 +59,12 @@
     (declare (special sentence-initial? subject-seen? main-verb-seen?))
 
     ;; Loop over the treetops
+    ;; Inside this outer loop, we loop over each treetop we have in order
+    ;; to be sure that we notice multiple initial edges
     (loop
        (multiple-value-setq (treetop pos-after multiple?)
          (next-treetop/rightward rightmost-pos))
-       ;; The treetops of the chart as returns by next-treetop/rightward
+       ;; The treetops of the chart as returned by next-treetop/rightward
        ;; can be either single edges or an edge-vector with multiple (initial)
        ;; edges. If there is no edge at the position ('rightmost-pos') then
        ;; the word is returned as the tt. 
@@ -75,6 +77,7 @@
            (error "Walked beyond the bounds of the sentence")))
        
        (incf count) ; of treetops
+       (when count-past-verb (incf count-past-verb))
        
        (when (and (word-p treetop)
                   (eq treetop *the-punctuation-period*))
@@ -118,7 +121,7 @@
 
        ) ; bottom of the loop over treetops
 
-    (when *pending-pronoun*
+    #+ignore(when *pending-pronoun*
       (attempt-to-dereference-pronoun *pending-pronoun* layout))
 
     layout))
@@ -127,12 +130,24 @@
 
 (defun sweep/form-dispatch (tt prior-tt count
                             layout &aux form)
-  "Encapsulates the actual form-based dispatch. Calls subroutines in
-   forest-gophers to set the fields in the layout and help maintain
-   state."
+  "Encapsulates the actual form-based dispatch for a treetop   
+   Calls subroutines in forest-gophers to set the fields in the layout 
+   and update the state variables."
   (declare (special word::|of| category::that word::comma
-                    sentence-initial? subject-seen? main-verb-seen?
-                    waiting-for-non-verb))
+                    sentence-initial?  subject-seen?  main-verb-seen?
+                    *try-incrementally-resolving-pronouns*
+                    waiting-for-non-verb  count-past-verb))
+
+  (when (eq (form-cat-name tt) 'possessive)
+    ;; That's a property, not a concrete term. Find the actual
+    ;; term and update the tt and form. The point is to identify
+    ;; the correct subject even if it's buried
+    (cond ((eq 'apostrophe-s (edge-cat-name (edge-right-daughter tt)))
+           (setq tt (edge-left-daughter tt)))
+          ((is-pronoun? tt)) ; "my"
+          (t (when *debug-pronouns*
+               (push-debug `(,tt))
+               (break "another case of toplevel possessive:~%  ~a" tt)))))
   
   (when (edge-p tt) (setq form (edge-form tt)))
   (tr :sweep-dispatching-on tt)
@@ -141,17 +156,16 @@
     (unless (vg-category? tt)
       (tr :non-verb-seen)
       (setq main-verb-seen? t
-            waiting-for-non-verb nil)))
+            waiting-for-non-verb nil
+            count-past-verb 1)))
+
+  (when (and count-past-verb ; starts as nil
+             (= 1 count-past-verb))
+    (push-post-verb-tt tt))
 
   (when (category-p form)
     (case (cat-name form) ;; this is a gross control structure, but it works
-      
-      ((np proper-name proper-noun n-bar common-noun
-           pronoun wh-pronoun reflexive/pronoun possessive/pronoun)
-       (unless (word-p tt)
-         ;;/// pull back inline when it's all worked out
-         (catalog-np-for-sweep tt prior-tt count form layout)))
-
+ 
       (vp
        (push-verb-phrase tt))
 
@@ -199,9 +213,8 @@
       ((parentheses square-brackets)
        (push-parentheses tt))
       
-      (quantifier
-       ;; drop it on the floor for now: "each of"
-       )
+      (quantifier ) ;; drop it on the floor for now: "each of"
+       
       (det
        (if (eq (edge-category tt) category::that)
          (then
@@ -214,6 +227,68 @@
                      ~% tt = ~a~
                      ~% form = ~a"
                     tt form)))))
+
+           
+      ((np proper-name proper-noun n-bar common-noun
+           pronoun wh-pronoun reflexive/pronoun possessive/pronoun)
+       (unless (word-p tt)
+         (let ((pending-np tt)
+               (properties nil) ; to add to
+               (referent (edge-referent tt)))
+
+           (when (np-over-that? tt)
+             (push :that properties)
+             (push-that tt))
+
+           (when (null prior-tt)
+             ;; first np constituent in the sentence
+             (push :subject properties)
+             (set-subject tt))
+
+           (when main-verb-seen?
+             (push :post-verb properties)
+             (push-loose-np tt))
+
+           ;; Label the first np encountered before the verb as
+           ;; the subject, but not an np in it an apposative on
+           ;; that np.
+           (when (and (edge-p prior-tt)
+                      (not main-verb-seen?)
+                      (not subject-seen?)
+                      (or (eq (edge-category prior-tt) word::comma)
+                          (and (category-p (edge-category prior-tt))
+                               (memq (edge-cat-name prior-tt) '(pp adverb)))))
+             (push :subject properties)
+             (set-subject tt))
+           
+           (when (individual-p referent)
+             (when (plural? referent)
+               (push :plural properties)))
+
+           (when (pronoun-category? form)
+             (tr :noticed-pronoun tt)
+             (push :pronoun properties)
+             (when (or (not  (current-script :biology))
+                       (not (ignore-this-type-of-pronoun (edge-category tt))))
+               ;; We've got several options. If we're going to wait until the
+               ;; whole sentence is done and condition-anaphor-edge runs to
+               ;; record whatevern information the grammar can give us for v/r,
+               ;; the we just push the pronoun.
+               ;;   If we going to do it now, then we can either wait until
+               ;; all of the features of this sentence have been determined,
+               ;; in which case we 'enqueue' the pronoun and a trap will find it.
+               ;; That might provide a better picture of the sentence layout.
+               ;; Alternatively, we see if we can do it right now.
+               (if *try-incrementally-resolving-pronouns*
+                 (handle-incremental-pronoun tt properties layout)
+                 #+ignore(enqueue-pronoun tt)
+                 (push-pronoun tt))))
+
+           ;; package this up
+           (let ((package (list pending-np
+                                count
+                                properties)))
+             (push package nps-seen)))))
       
       (otherwise
        (when *break-on-new-tt-sweep-cases*
@@ -227,70 +302,5 @@
     (push-subcat tt)))
 
 
-;;--- NP handler
 
-(defvar nps-seen nil
-  "Initialized in clear-s  weep-sentence-tt-state-vars, contains the edge
-   for each np (each type of form listed in the sweep leading to
-   the catalog NP call, particularly pronouns) along with the set of
-   properties we can deduce about them.")
 
-(defun catalog-np-for-sweep (tt prior-tt count form layout)
-  "Broken out as a subroutine just to make it easier to write alternatives"
-  ;; maintain a stack of sentential nps..
-  (declare (special *try-incrementally-resolve-pronouns*
-                    main-verb-seen?))
-  (let ((pending-np tt)
-        (properties nil) ; to add to
-        (referent (edge-referent tt)))
-
-    (when (np-over-that? tt)
-      (push :that properties)
-      (push-that tt))
-
-    (when (null prior-tt)
-      ;; first constituent in the sentence
-      (push :subject properties)
-      (set-subject tt))
-
-    (when main-verb-seen?
-      (push :post-verb properties)
-      (push-loose-np tt))
-    
-    (when (and (edge-p prior-tt)
-               (not main-verb-seen?)
-               (or (eq (edge-category prior-tt) word::comma)
-                   (and (category-p (edge-category prior-tt))
-                        (memq (edge-cat-name prior-tt) '(pp adverb)))))
-      (push :subject properties)
-      (set-subject tt))
-    
-    (when (pronoun-category? form)
-      (tr :noticed-pronoun tt)
-      (push :pronoun properties)
-      (when (or (not  (current-script :biology))
-                (not (ignore-this-type-of-pronoun (edge-category tt))))
-        ;; We've got several options. If we're going to wait until the
-        ;; whole sentence is done and condition-anaphor-edge runs to
-        ;; record whatevern information the grammar can give us for v/r,
-        ;; the we just push the pronoun.
-        ;;   If we going to do it now, then we can either wait until
-        ;; all of the features of this sentence have been determined,
-        ;; in which case we 'enqueue' the pronoun and a trap will find it.
-        ;; That might provide a better picture of the sentence layout.
-        ;; Alternatively we see if we can do it right now.
-        (if *try-incrementally-resolve-pronouns*
-          (then
-            (attempt-to-dereference-pronoun tt layout)
-            #+ignore(enqueue-pronoun tt))
-          (push-pronoun tt))))
-
-    (when (individual-p referent)
-      (when (plural? referent)
-        (push :plural properties)))
-
-    ;; package this up
-    (let ((package (list pending-np
-                         count
-                         properties)))
-      (push package nps-seen))))

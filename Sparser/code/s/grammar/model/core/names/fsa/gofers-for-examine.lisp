@@ -1,8 +1,9 @@
-;;; Copyright (c) 2013-2016 David D. McDonald all rights reserved
+;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
+;;; Copyright (c) 2013-2021 David D. McDonald all rights reserved
 ;;;
 ;;;      File: "gofers-for-examine"
 ;;;    Module: model/core/names/fsa/
-;;;   Version: February 2018
+;;;   Version: September 2021
 
 ;; Initiated 3/28/13 by pulling out the odd tests and checks 
 ;; from examine. 
@@ -181,59 +182,77 @@
   (when (null (cdr list-of-names)) 
     ;; or call a variant on (ambiguous-name-stub names entities)
     (let ((name (car list-of-names)))
-      (unless (itypep name 'company-name)
-        (error "Shorter names from longer only implemented for company-names,
-              ~%not this one: ~a" name))
-      ;; These indexes are the name sequences. Pooh
-      (let* ((sequence (value-of 'sequence name))
-             (first-word (value-of 'first-word name))
-             (instances (cat-instances category::company-name))
-             (sequences-with-same-start
-              (loop for s in instances
-                as items = (value-of 'items s)
-                when (eq (car items) first-word)
-                collect s)))
+      (when (itypep name 'company-name)
+        ;;/// we don't know how to factor other sorts of names, though using
+        ;; the first nw in the sequence might be reasonable
+        (let* ((sequence (value-of 'sequence name))
+               (first-word (value-of 'first-word name))
+               (instances (cat-instances category::company-name))
+               (sequences-with-same-start
+                (loop for s in instances
+                   as items = (value-of 'items s)
+                   when (eq (car items) first-word)
+                   collect s)))
 
-        (let ((candiates (loop for s in sequences-with-same-start
-                           when (> (value-of 'number s)
-                                   (value-of 'number sequence))
-                           collect s)))
-          (when candiates
-            (let ((candiate-names
-                   (loop for s in candiates
-                     collect (bound-in s :body-type 'company-name))))
+          (let ((candiates (loop for s in sequences-with-same-start
+                              when (> (value-of 'number s)
+                                      (value-of 'number sequence))
+                              collect s)))
+            (when candiates
+              (let ((candiate-names
+                     (loop for s in candiates
+                        collect (bound-in s :body-type 'company-name))))
 
-              (let ((companies
-                     (loop for cn in candiate-names
-                       as co = (bound-in cn :body-type 'company)
-                       when co  collect co)))
+                (let ((companies
+                       (loop for cn in candiate-names
+                          as co = (bound-in cn :body-type 'company)
+                          when co  collect co)))
 
-                (let ((company (car companies)))
-                  ;; They all have the same name, or close enough,
-                  ;; so the choice doesn't matter. 
-                  ;; One examined case had two companies in this
-                  ;; list, but they were both the same one
-                  (setq company (bind-dli-variable 'name name company))
-                  
-                  (list company))))))))))
+                  (let ((company (car companies)))
+                    ;; They all have the same name, or close enough,
+                    ;; so the choice doesn't matter. 
+                    ;; One examined case had two companies in this
+                    ;; list, but they were both the same one
+                    (setq company (bind-dli-variable 'name name company))
+                    
+                    (list company)))))))))))
             
       
-    
+
+;;--- hyphen
+
+(defun reify-hyphenated-pair (items tt-before-hyphen hyphen)
+  "During the scan we encountered a hyphen between two capitalized words.
+   We want to form a polyword from the triple. We edit and return
+   the items list to reflect this."
+  (push-debug `(,items ,tt-before-hyphen ,hyphen))
+  ;; The revised item list has to run the gauntlet of referents-of-list-of-edges
+  ;;   which wants to return name-words -- but there doesn't seem to be
+  ;;   a provision for a polyword making a name-word from a pw. Just individual words.
+  ;; While sorting that out, just splice the hyphen out of list.
+  (let ((hyphen-edge (ev-top-node (pos-starts-here hyphen))))
+    (unless hyphen-edge
+      (break "no hyphen edge")) ; throw
+    (setq items (remove hyphen-edge items))
+    items))
 
 
 ;;--- countries
 
-(defun double-country-check (country-tt items count)
+(defun double-country-check (country-tt items count end-pos)
+  "This is called from the check-cases sweep in examine-capitalized-sequence
+   if a country is encountered and there already has been one.
+   e.g. 'the Irish Coast Guard and Irish Lighthouses'
+   If this is a list of countries it should be left for
+   the conjunction routine to sweep up, not coerced into 
+   a name, though if they are adjectives that's ok" 
   (push-debug `(,country-tt ,items ,count))
-  ;; If this is a list of countries it should be left for
-  ;; the conjunction routine to sweep up, not coerced into 
-  ;; a name, though if they are adjectives that's ok
   ;; FIXME -- should loop through the items, expecting just
-  ;; countries and probably the word "and".  If all the countries
+  ;; countries and probably the word "and". If all the countries
   ;; are proper-adjective's then we may leave them in,
   ;; and if some other word is involved that would be odd too
   (throw :abort-examination-not-a-name
-         `(:not-a-name ,(pos-edge-ends-at country-tt))))
+         `(:not-a-name ,(pos-edge-ends-at end-pos))))
 
 (defun only-country-in-items (items start-pos end-pos)
   (declare (special category::country word::hyphen)(ignore start-pos end-pos))
@@ -308,22 +327,26 @@
   
 
 
-(defmethod title-element? ((e edge))
-  (let ((referent (edge-referent e)))
-    (when referent
-      (when (individual-p referent)
-        (title-element? referent)))))
-
-(defmethod title-element? ((i individual))
-  (declare (special category::title category::title-modifier))
-  (let ((c (itype-of i)))
-    (memq c `(,category::title-modifier
-              ,category::title
-              ;;,category::country
-              ;;  "American Foreign Relations Council"
-              ;;/// Need to be more deliberate about this
-              ;;   ,category::military-rank
-              ))))
+(defgeneric title-element? (item)
+  (:documentation "Is this item semantically a possible component
+    of a title?")
+  (:method ((e edge))
+    (let ((referent (edge-referent e)))
+      (when referent
+        (when (individual-p referent)
+          (title-element? referent)))))
+  (:method ((i individual))
+    (declare (special category::title category::title-modifier))
+    (let ((c (itype-of i)))
+      (memq c `(,category::title-modifier
+                ,category::title
+                ;;,category::country
+                ;;  "American Foreign Relations Council"
+                ;;/// Need to be more deliberate about this
+                ;;   ,category::military-rank
+                ))))
+  (:method ((w word)) nil)
+  (:method ((pw polyword)) nil))
 
 (defun title-elements-in-items (item-edges)
   ;; Called from examine-capitalized-sequence
@@ -365,7 +388,7 @@
       (unless tt
         (push-debug `(,position))
         (error "Did not compute a treetop for position ~a~
-              ~%Extend/fix the algorith." 
+              ~%Extend/fix the algorithm." 
                (pos-array-index position)))
       tt)))
 
@@ -514,12 +537,22 @@
                 (setf (edge-category edge) category::name-word)
                 edge )))))))
 
-      
+
+#| According to make-name-word-for-unknown-word-in-name, it was called
+when the Examine sweep encountered an unknown word, i.e. a word without
+a rule-set. Now (May 2020) that will never happen since we always create
+a minimal category and rule set for every word.
+|#
 
 (defun referents-of-list-of-edges (reversed-list-of-edges)
-  ;; called by Examine-capitalized-sequence to make the item list
-  ;; for Categorize-and-form-name. Returns a list of terms from
-  ;; the model to put into the name object
+  "Called by Examine-capitalized-sequence to make the item list
+   for Categorize-and-form-name. Returns a list of terms from
+   the model to put into the name object. Wants name-words rather
+   than raw individuals. Makes them  on the fly when it's clear how to.
+     This is also a place to catch things that pass the checks in
+   examine but should not be part of a name. If the typecase returns
+   the value :drop, a final check will not add that item to the
+   return list"
   (let ( value  referents )
     (dolist (item reversed-list-of-edges)
       ;; Collect one item per pass through this loop and
@@ -530,32 +563,52 @@
             (typecase item
               (edge
                (let ((referent (edge-referent item)))
-                 (if (null referent)
-                   (get-name-referent-of-odd-edge item :pnf)
-                   (typecase referent
-                     (individual  referent)
+                 (cond
+                   ((null referent)
+                    (get-name-referent-of-odd-edge item :pnf))
+                   ((itypep referent 'pronoun)
+                    :drop)
+                   ((eq (edge-cat-name item) 'motif-trigger)
+                    :drop)
+                   ((memq (form-cat-name item)
+                          '(preposition ; 'except for'
+                            reflexive/pronoun ; 'each other'
+                            det ; "more than"
+                            adverb ; "as well"
+                            subordinate-conjunction ; "not only"
+                            ))
+                    :drop)
+                   (t
+                    (typecase referent
+                      (individual
+                       (find/make-silent-nw-for-word-under-edge item))
 
-                     ((or referential-category category mixin-category)
-                      (find/make-silent-nw-for-word-under-edge item))
+                      ((or referential-category category mixin-category)
+                       (find/make-silent-nw-for-word-under-edge item))
 
-                     ((or word section-marker)
-                      ;; This is here for "ORANGE-CO, INC.", where the
-                      ;; "CO" is interpreted as a header.
-                      referent)
+                      ((or word section-marker)
+                       ;; This is here for "ORANGE-CO, INC.", where the
+                       ;; "CO" is interpreted as a header.
+                       referent)
 
-                     (otherwise
-                      (when *debug-pnf*
-                        (push-debug `(,referent ,item ,reversed-list-of-edges))
-                        (break "Unexpected type of edge referent: ~a~%~a"
-                               (type-of referent) referent)))))))
+                      (otherwise
+                       (when *debug-pnf*
+                         (push-debug `(,referent ,item ,reversed-list-of-edges))
+                         (break "Unexpected type of edge referent: ~a~%~a"
+                                (type-of referent) referent))))))))
                    
               (individual ;; e.g. the name-word that is made for
                ;; an unknown capitalized word
-               item)
+               (if (itypep item 'name-word)
+                 item
+                 (else
+                   (when *debug-pnf* ; otherwise drop it
+                     (push-debug `(,item ,reversed-list-of-edges))
+                     (break "Loose individual in the item list. ~
+                             Expected a name-word:~%~a" item)))))
 
-              (word ;(or (name-word-for-word item)
-               ;    (make-name-word-for/silent item))
-               (let ((nw (name-word-for-word item)))
+              (word
+               (let ((nw (name-word-for-word item))) ;accesses word's plist
                  (cond
                    (nw nw)
                    ((and (= 1 (length (pname item))) ;;/// reify
@@ -583,7 +636,9 @@
           (push-debug `(,reversed-list-of-edges))
           (break "No referent for item in PNF treetop sequence:~
                 ~%  ~A" item)))
-      (kpush value referents))
+      (when value ;; raw individuals are dropped if we're not debugging
+        (unless (eq value :drop)
+          (kpush value referents))))
 
     referents ))
 
@@ -594,7 +649,7 @@
 (defun populate-categories-that-appear-in-names ()
   (declare (special category::phase-of-day))
   (setq *categories-that-appear-in-names*
-        (list category::phase-of-day  ;; "Morning", in a newspape's name
+        (list category::phase-of-day  ;; "Morning", in a newspaper's name
         )))
 
 (defun get-name-referent-of-odd-edge (edge purpose)
@@ -623,6 +678,11 @@
                                  words))
              (sequence (define-sequence name-words)))
         sequence))
+
+     ((eq label category::apostrophe-s)
+      ;; It's a possessive that wasn't recognized as such.
+      ;;  "Guinness' international affiliates"
+      :drop)
 
      ((memq label *categories-that-appear-in-names*)
       (let ((ref (edge-referent edge)))

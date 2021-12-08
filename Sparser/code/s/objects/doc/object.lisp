@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2013-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2013-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "object"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  August 2020
+;;;  Version:  June 2021
 
 ;; Created 2/6/13 to solve the problem of keeping document/section context.
 ;; [sfriedman:20130206.2038CST] I'm writing this using /objects/chart/edges/object3.lisp as an analog.
@@ -267,14 +267,14 @@
     (setf (name obj) (or name (known-in-context :name)))
     (setf (article-location obj)
           (or location (known-in-context :location)))
-    #+ignore(setf (article-date obj)
+    (setf (article-date obj)
           (or date (date-&-time-as-formatted-string)))
     (setf (article-source obj)
           (or source (known-in-context :source)))
     (setf (contents obj)
           (install-contents obj))
     (setf *current-article* obj)
-    (add-to-document-set obj)
+    ;; (add-to-document-set obj) -- not using document sets
     (initialize-sections) ;; make the 1st section
     obj))
 
@@ -579,12 +579,18 @@
         (set-document-index s1 1)
         s1)))))
 
+(defparameter *always-make-fresh-sentences* t)
+
 (defun start-sentence (pos)
   "Called from initialize-sentences for the first one, then
    from period-hook -- 'pos' is the position after the period."
   (declare (special *reading-populated-document*
-                    *sentence-terminating-punctuation*))
-  (let ((s (if *reading-populated-document*
+                    *paragraphs-from-orthography*
+                    *sentence-terminating-punctuation*
+                    *always-make-fresh-sentences* ))
+  (let ((s (if (or *reading-populated-document*
+                   *paragraphs-from-orthography*
+                   *always-make-fresh-sentences*)
              (make-instance 'sentence) ;; permanent
              (allocate-sentence))) ;; reclaimed
         (index (if *current-sentence*
@@ -595,9 +601,8 @@
           (if *current-sentence*
             (pos-character-index pos)
             1))
-    (when (null (starts-at-char s)) (lsp-break "bad index"))
+    (when (null (starts-at-char s)) (lsp-break "bad sentence index"))
     (setf (contents s) (make-sentence-container s))
-    ;; lookup the current section for parent
     (when *current-sentence*
       (let* ((last *current-sentence*)
              (section (parent last)))

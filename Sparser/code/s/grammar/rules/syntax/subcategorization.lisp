@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2014-2018 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2014-2021 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "subcategorization"
 ;;;   Module:  "grammar;rules:syntax:"
-;;;  Version:  December 2018
+;;;  Version:  August 2021
 
 ;; Initiated 9/11/14 to organize information about subcategorization patterns
 ;; Working on it through 9/15/14. 11/20/14 hacked up a treatment of multiple
@@ -17,7 +17,6 @@
 
 (in-package :sparser)
 
-
 ;;;--------------------------------------
 ;;; Comlex subcategorization information
 ;;;--------------------------------------
@@ -27,26 +26,43 @@
   (adjective 
     (:subc ((adj-pp :pval ("for" "to"))
             (extrap-adj-for-to-inf))
-     :features ((gradable))))) |#
+           :features ((gradable))))) |#
 
-(defmethod comlex-entry ((pname string))
-  "Just return the subcagegorization expression if there is one.
-   It will be an alist on part of speech."
-  (declare (special *comlex-words-primed* *primed-words*))
-  (when *comlex-words-primed*
-    (let ((full-entry (gethash pname *primed-words*)))
-      (when full-entry
-        (cddr full-entry)))))
+(defgeneric comlex-entry (word)
+  (:documentation "returns ONLY the clauses of the word's Comlex entry.
+    Returns nil if Comlex has not been loaded ('*comlex-words-primed*)")
+  (:method ((w word))
+    (comlex-entry (word-pname w)))
+  (:method ((name symbol))
+    (comlex-entry (string-downcase (symbol-name name))))
+  (:method ((pname string))
+    (declare (special *comlex-words-primed* *primed-words*))
+    (when *comlex-words-primed*
+      (let ((full-entry (gethash pname *primed-words*)))
+        (when full-entry
+          ;; strip off the ':comlex <pname>' from the actual entry
+          (cddr full-entry))))))
 
-(defmethod comlex-subcategorization ((w word) (pos symbol))
-  (comlex-subcategorization (word-pname w) pos))
+(defgeneric comlex-entry/full (word)
+  (:documentation "Returns the complete entry as used by unpack-primed-word")
+  (:method ((w word))
+    (comlex-entry/full (word-pname w)))
+  (:method ((pname string))
+    (declare (special *comlex-words-primed* *primed-words*))
+    (unless *comlex-words-primed* (error "Comlex is not loaded"))
+    (gethash pname *primed-words*)))
 
-(defmethod comlex-subcategorization ((pname string) (pos symbol))
-  (declare (special *comlex-words-primed*))
-  (when *comlex-words-primed*
-    (let ((entry (comlex-entry pname)))
-      (when entry
-        (assq pos entry)))))
+(defgeneric comlex-subcategorization (word pos)
+  (:documentation "Access the Comlex entry for the word and then
+    return the subentry for the indicated part of speech (given as a symbol)")
+  (:method  ((w word) (pos symbol))
+    (comlex-subcategorization (word-pname w) pos))
+  (:method ((pname string) (pos symbol))
+    (declare (special *comlex-words-primed*))
+    (when *comlex-words-primed*
+      (let ((entry (comlex-entry pname)))
+        (when entry
+          (assq pos entry))))))
 
 
 (defun add-specific-subcategorization-facts (category word pos)
@@ -78,6 +94,10 @@
     :initform nil :accessor bound-prepositions
     :documentation "Does this word take any prepositions, and if so,
       does the combination denote a different category?")
+   (phrases
+    :initform nil :accessor linked-phrases
+    :documentation "If this a verb that is part of a larger phrase
+      ('fall in love') this records the phrase")
    (local-slots
     :initarg :slots :initform nil :accessor subcat-slots
     :documentation "Local patterns that augment or override inherited ones.")
@@ -376,61 +396,61 @@
  They are setup during morphological processing of a head verb by
  adding a keyword argument analogous to the markers of irregular verb forms
 
-     :realization (:verb ("work" :prep "on") ...)
+  (define-category put-forward
+     ...
+     :realization (:verb ("put" :prep "forward")) ...))
  
  We implement the pair by recording the preposition on the subcategorization
  frame for the category of the verb
 
- That simple version is sufficient if the verb is uniquely used with
- the preposition. If the verb has a different meaning when it's used
- without the preposition (e.g. "put" vs. "put forward") then we need to
- provide the setup routine with more information so that it can write the
- correct rule and stash the sub-cat information correctly.
-
-   (define-category put-forward
-     ...
-     :realization (:verb ("put" :prep ("forward" "put" put-forward)) ...))
+ In when we set up this construction we presume that the verb has an
+ interpretation when used by itself, which will have been established
+ before the preposition cases are. If that's not the case, then we create
+ the rules for the verb head as part of handling the preposition and
+ those verb rules will map to the category being defined, e.g. we'll
+ have put-forward -> "put". That's unreasonable so we're working to
+ give the bare verb a reasonable default interpretation.
+ 
 |#
 
-(defun setup-bound-preposition (prep verb-category referent)
+(defun setup-bound-preposition (verb prep target-category)
   "Add the preposition, referent pair to the subcat record
    of the verb. Make a rewrite rule that composes them.
    Called from make-rules-for-head when the verb has a :prep value,
    which should be a preposition or a list of the preposition, the verb,
    and the target category"
   (declare (special category::vg))
-  (let ((verb-category-copy verb-category)
-        (target-category verb-category))  ;; put-forward
-    (when (consp prep)
-      (setq target-category (third prep)) ;; put-forward
-      (let* ((base-verb (second prep)) ;; #<word "put">
-             (rs (rule-set-for base-verb))
-             (bogus-rule (first (rs-single-term-rewrites rs)))
-             (good-rule (second (rs-single-term-rewrites rs))))
-        (setq verb-category (cfr-category good-rule))
-        ;;(push-debug `(,rs ,verb-category-copy ,verb-category))
-        (delete/cfr/rs bogus-rule rs))
-      (setq prep (first prep)))
-    (unless (word-p prep)
-      (error "Prep isn't a word: ~a~%~a" prep (type-of prep)))
-    (let* ((prep-label (cfr-category (find-single-unary-cfr prep)))         
-           (sc (get-subcategorization verb-category)))
-      (unless sc (error "No subcat frame on ~a" verb-category))
-      (pushnew prep (bound-prepositions sc))
-      (let ((rule (define-cfr target-category `(,verb-category ,prep-label)
-                    :form category::vg
-                    :referent referent)))
-        (add-rule rule target-category)
-        (values rule sc)))))
+  (push-debug `(,verb ,prep ,target-category))
+  (unless (word-p prep)
+    (error "Prep isn't a word: ~a~%~a" prep (type-of prep)))
+  (let* ((base-cfr (find-single-unary-cfr verb))
+         (verb-category (cfr-category base-cfr))
+         (prep-cfr (find-single-unary-cfr prep))
+         (prep-label (when prep-cfr (cfr-category prep-cfr)))
+         (sc (get-subcategorization verb-category)))
+    (unless sc (error "no subcat frome for ~a" verb-category))
+    (if prep-cfr
+      (then
+        (pushnew prep (bound-prepositions sc))
+        (let ((rule (define-cfr target-category `(,verb-category ,prep-label)
+                      :form category::vg
+                      :referent target-category)))
+          (add-rule rule target-category)
+          (tr :verb+prep verb prep)
+          (values rule sc)))
+      (format t "~&~%The preposition ~a is undefined~%" prep))))
 
+;; Strange case -- "treated with or without ..." in ASPP2
 
 (defgeneric binds-preposition? (head preposition)
   (:documentation "Does this head category have an entry
     in its subcategorization from indicating its takes
     a preposition (particle). The particle can be a word
-    or a polyword.")
+    or a polyword.
+    Used by look-for-prep-binders in pass-one to recognize
+    instances of them.")
   (:method ((word word) (cat referential-category)) nil)
-  (:method ((e edge)(cat referential-category)) nil)
+  (:method ((e edge) (cat referential-category)) nil)
 
   (:method ((e edge) (prep word))
     (let* ((label (edge-category e))
@@ -459,7 +479,63 @@
       (when preps
         (memq prep preps)))))
 
-;; Strange case -- "treated with or without ..." in ASPP2
+
+;;;---------------
+;;; phrasal verbs
+;;;---------------
+#| These are similar to bound prepositions in that what we
+ take to be the verb is not just the verb by itself. 
+ Used for phrases like "give birth (to)" or "fall in love (with)".
+ The verb exhibits its usual morphological variation, and is immediately
+ followed by a fixed phrase ("birth", "in love"). 
+    Any subcategorization ("to", "with") applies after we've completed
+ the extended verb group. There's no special provision for adverbs
+ ("fall head over heels in love"), but that won't be a problem if
+ composition with the adverb yields the same label as the verb has.
+
+  (define-category fall-in-love
+    ...
+    :realization (:verb ("fall" :phrase "in love"))
+                  :with ... ))
+|#
+
+(defun setup-phrasal-verb (verb phrase target-category)
+  "Called from make-rules-for-head ((pos (eql :verb)) ..) when there is
+   a 'phrase' statement in the definition of the verb. As with bound prepositions,
+   we store the phrase in the subcat data of main verb and we make a rule
+   composing the verb with the phrase that will be looked early in pass1."
+  (push-debug `(,verb ,phrase ,target-category))
+  
+  (let ((known? (has-rules? phrase)))
+    (unless known?
+      (setq phrase (create-new-category phrase)))
+    
+    (let* ((base-cfr (find-single-unary-cfr verb))
+           (verb-category (cfr-category base-cfr))
+           (sc (get-subcategorization verb-category)))
+      (unless sc (error "no subcat frome for ~a" verb-category))
+      
+      (let ((phrase-label (cfr-category (first (has-rules? phrase)))))
+        (pushnew phrase-label (linked-phrases sc))
+        (let ((rule (define-cfr target-category `(,verb-category ,phrase-label)
+                      :form category::vg
+                      :referent target-category)))
+          (add-rule rule target-category)
+          (values rule sc))))))
+
+(defgeneric phrasal-verb? (verb)
+  (:documentation "Asks whether this verb is ever the base of a phrasal
+    verb. That will entitle the caller, look-for-phrasal-verb, to apply
+    the rule created by setup-phrasal-rule (that's assuming the edge
+    it's sitting on is one of the options that goes with this verb")
+  (:method ((e edge))
+    (let* ((label (edge-category e))
+           (sc (get-subcategorization label)))
+      (when sc ;; The apostrophe-re in "they're .."
+        (linked-phrases sc)))))
+                  
+
+
 
 
 ;;;------------------
@@ -1042,11 +1118,11 @@
     ((null item)
      (cond
        ((and (boundp '*pobj-edge*) *pobj-edge*)
-	(warn "~&*** null item in subcategorized pobj for ~
+	(warn-or-error "~&*** null item in subcategorized pobj for ~
                  edge ~s~&  in sentence: ~s~%" *pobj-edge*
                  (current-string)))
        ((eq label :subject)
-        (warn "~&*** null item in subcategorized subject for ~
+        (warn-or-error "~&*** null item in subcategorized subject for ~
                  clause ~s~&  in sentence: ~s~%"
               (retrieve-surface-string head)
               (current-string)))
@@ -1056,13 +1132,13 @@
               (retrieve-surface-string head)
               (current-string)))
        (t
-        (warn "~&*** null item in subcategorized-variable~& ~
+        (warn-or-error "~&*** null item in subcategorized-variable~& ~
                  edge ~s~&  in sentence: ~s~%" *pobj-edge*
                  (current-string))))
      nil)
     ((consp item)
      (unless *subcat-test*
-       (warn "what are you doing passing a CONS as an item, ~s~&" item))
+       (warn-or-error "what are you doing passing a CONS as an item, ~s~&" item))
      nil)
     (t
      (find-subcat-var item label head))))
@@ -1112,7 +1188,7 @@
                              (not (itypep (subcat-restriction pat) 'blocked-category)))
                      do (return pat)))))
     (declare (special category subcat-patterns of-object ambiguous-of-object))
-    (when ambiguous-of-object (warn "ambiguous-of-object is ~a" ambiguous-of-object))
+    (when ambiguous-of-object (warn-or-error "ambiguous-of-object is ~a" ambiguous-of-object))
 
     (when of-object
       (if ambiguous-of-object
@@ -1120,7 +1196,7 @@
               (setq label :object)
               (unless *subcat-test*
                 ;;(lsp-break "of-object")
-                (warn "ambiguous-of-object for ~s attaching to ~s in ~s"
+                (warn-or-error "ambiguous-of-object for ~s attaching to ~s in ~s"
                       item head (current-string))))
           (setq label :object)))
     
@@ -1273,7 +1349,7 @@
   (declare (special category::number))
   (when (and (not (itypep item 'pronoun))
              (not (itypep item 'part-of-a-whole)) ;; "a subset"
-             (not (itypep item 'requires-context));; new, for "those", "these"
+             (not (itypep item 'requires-context));; for "those", "these"
              (loop for pat in pats
                    thereis
                      (not (consp (subcat-restriction pat)))))

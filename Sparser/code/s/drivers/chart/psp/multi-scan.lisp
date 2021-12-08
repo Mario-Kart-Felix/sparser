@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2014-2020 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2014-2021 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "multi-scan"
 ;;;   Module:  "drivers/chart/psp/"
-;;;  version:  June 2020
+;;;  version:  September 2021
 
 ;; Broken out of no-brackets-protocol 11/17/14 as part of turning the
 ;; original single-pass sweep into a succession of passes. Drafts of
@@ -67,6 +67,8 @@
                     *newline*)
            (optimize debug))
 
+  (sentence-level-initializations) ;; clear traversal state
+
   (unless (includes-state position :scanned) ;; make sure there's a word
     (scan-next-position))
   
@@ -118,15 +120,20 @@
                                          (chart-position-after position))))
                 (when where-pw-ended
                   (tr :scanned-pw-ended-at word where-pw-ended)
+                  (spot-polyword where-pw-ended)
                   (setq position where-pw-ended)
                   (unless (includes-state where-pw-ended :scanned)
                     ;; PW can complete without thinking about the
                     ;; word that follows it.
                     (scan-next-position))
                   (setq word (pos-terminal where-pw-ended)))
-                
+
                 (unless (includes-state position-after :scanned)
                   (scan-next-position))
+                
+                (unless where-pw-ended
+                  ;; spotter needs the next word to have been scanned and have indexes
+                  (spot-word position))
 
                 (let ((next-word (pos-terminal position-after)))
                   (tr :next-terminal-to-scan position-after next-word)
@@ -226,7 +233,6 @@
   
   (tr :scan-terminals-loop)
   (simple-eos-check position-before word)
-  (sentence-level-initializations) ;; clear traversal state
 
   (when *sweep-for-word-level-fsas*
     (word-level-fsa-sweep position-before end-pos))
@@ -246,6 +252,10 @@
 ;;;--------------------------
 ;;; sweep for FSA's on words
 ;;;--------------------------
+
+;; (trace-terminals-sweep)
+;; (trace-pnf)
+;; (trace-fsas)
 
 (defun word-level-fsa-sweep (start-pos end-pos)
   "At this point some spans may be covered with edges introduced
@@ -269,6 +279,11 @@
                  (pos-token-index position-before)
                  (or word edge)
                  position-after))
+       (when edge
+         (when (memq (edge-cat-name edge) '(person-prefix)) ; what else?
+           ;; Check for polyword edge (from the first sweep) masking
+           ;; the start of a proper name
+           (setq word (pos-terminal (pos-edge-starts-at edge)))))
        (when word
          (tr :check-word-level-fsa-trigger position-before)
          (multiple-value-bind (fsa word-variant)
@@ -277,7 +292,8 @@
                             *pnf-routine*)))
              (when (or fsa pnf?)
                (flet ((apply-fsa (fsa) (run-fsa fsa word-variant position-before))
-                      (apply-pnf () (pnf position-before)))
+                      (apply-pnf ()
+                        (pnf position-before (when edge (pos-edge-ends-at edge)))))
                  (let ((where-fsa-ended
                         (cond
                           ((and fsa pnf?) (apply-pnf))
@@ -864,7 +880,10 @@
          (eq (edge-referent left-edge) *the-punctuation-plus-minus*)                   
          (eq (edge-category right-edge) category::number))
 
+        #| remove these -- bad form (probably should have been an (and ...), also probably not needed as early rules
         (itypep (edge-referent left-edge) 'approximator) ; "only 35%"
+        (itypep (edge-referent right-edge) 'time-unit) ; 'a month'
+        |#
 
         (not (pos-preceding-whitespace mid-pos))
         (and (eq script :biology)
@@ -912,19 +931,6 @@
 ;;  (not (and (itypep (edge-referent left-edge) 'amino-acid)
 ;;            (itypep (edge-referent right-edge) 'number)))
 
-;; -- ddm this function is an example of that (and belongs in edge-vectors/object.lisp
-(defgeneric includes-edge-over-literal? (position)
-  (:documentation "Are any of the edges starting at this position
-    edges over a literal?")
-  (:method ((e edge))
-    (includes-edge-over-literal? (edge-starts-at e)))
-  (:method ((p position))
-    (includes-edge-over-literal? (pos-starts-here p)))
-  (:method ((ev edge-vector))
-    (loop for edge in (all-edges-on ev)
-       when (literal-edge? edge)
-       return t
-       finally (return nil))))
 
 
 ;;;------------------------------
@@ -960,6 +966,10 @@
       ;; modeled on sweep-sentence-treetops
       (multiple-value-setq (treetop position-after multiple?)
         (next-treetop/rightward position-before))
+
+       (when (eq treetop *newline*) ; pathology in document
+         (return))
+
       (when multiple?
         ;; This is built-into a variant next-treetop function,
         ;; but perhaps we want to look at variations on this
@@ -1003,10 +1013,11 @@
              (when where-pattern-scan-ended
                (tr :successful-ns-pattern-reached where-pattern-scan-ended)
                (setq position-after where-pattern-scan-ended))))))
+
                  
-      ;; The pattern could have taken us just past the period
-      (when (position-precedes end-pos position-after)
-        (return))
+       ;; The pattern could have taken us just past the period
+       (when (position-precedes end-pos position-after)
+         (return))
       (setq position-before position-after))))
 
 (defun check-for-pattern (position-after)  ;; (trace-scan-patterns)
@@ -1075,6 +1086,9 @@
      (tr :ns-start-tt-pos pos tt next-pos)
      (cond ((eq next-pos sent-end-pos)
             (return nil))
+           ((position/>= next-pos sent-end-pos)
+            ;; probably an edge has gone past the end of the sentence
+            (return nil))
            ((or (pos-preceding-whitespace next-pos)
                 (word-never-in-ns-sequence
                  (or (left-treetop-at/only-edges next-pos)
@@ -1142,29 +1156,38 @@
 (defun short-conjunctions-sweep (sentence)
   "Look for adjacent single edges that can conjoin around an instance of
    'and' identified by the completion action on the conjunction"
-  (declare (ignore sentence))
-  (tr :short-conjunctions-sweep)
-  (when *pending-conjunction*
-    (dolist (position (remove-duplicates *pending-conjunction*))
-      (let ((left-edge (left-treetop-at/only-edges position))
-            (right-edge (right-treetop-at/edge 
-                         (chart-position-after position)))
-            (*allow-form-conjunction-heuristic* 
-             *use-form-heuristic-in-conj-sweep*))
-        (declare (special *allow-form-conjunction-heuristic*))
-        (unless (or (word-p left-edge)
-                    (word-p right-edge))
-          (when left-edge
-            ;; "... for Ras17N (and Ras17N/69N)" in overnight #10
-            (if (edge-over-comma? left-edge)
-              (let ((new-left-edge (oxford-comma-pattern? left-edge)))
-                (when new-left-edge
-                  (tr :oxford-comma new-left-edge)
-                  (create-short-conjunction-edge-if-possible
-                   new-left-edge right-edge)))
-              (else ;; it's the simple case
-                (create-short-conjunction-edge-if-possible
-                 left-edge right-edge)))))))))
+  (declare (special *pending-conjunction*))
+  (let ((left-bound (starts-at-pos sentence))
+        (right-bound (ends-at-pos sentence)))
+    (tr :short-conjunctions-sweep)
+    (if *pending-conjunction*
+      (dolist (position (remove-duplicates *pending-conjunction*))
+        (tr :trying-conjunction-at position)
+        
+        (if (position/>= position left-bound)
+          (let ((left-edge (left-treetop-at/only-edges position))
+                (right-edge (right-treetop-at/edge 
+                             (chart-position-after position)))
+                (*allow-form-conjunction-heuristic* 
+                 *use-form-heuristic-in-conj-sweep*))
+            (declare (special *allow-form-conjunction-heuristic*))
+            ;;(setq *pending-conjunction* (remove position *pending-conjunction*))
+            (unless (or (word-p left-edge)
+                        (word-p right-edge))
+              (when left-edge
+                ;; "... for Ras17N (and Ras17N/69N)" in overnight #10
+                (if (edge-over-comma? left-edge)
+                  (let ((new-left-edge (oxford-comma-pattern? left-edge)))
+                    (when new-left-edge
+                      (tr :oxford-comma new-left-edge)
+                      (create-short-conjunction-edge-if-possible
+                       new-left-edge right-edge)))
+                  (else ;; it's the simple case
+                    (create-short-conjunction-edge-if-possible
+                     left-edge right-edge))))))
+
+          (tr :conj-pos-exceeded-bound left-bound)))
+      (tr :no-pending-conjunctions))))
 
 
 (defun create-short-conjunction-edge-if-possible (left-edge right-edge)
@@ -1177,12 +1200,15 @@
     (dolist (right (if (edge-vector-p right-edge) 
 		       (ev-edges right-edge)
 		       (list right-edge)))
+      (tr :checking-conj left right)
       (let ((heuristic (conjunction-heuristics left right)))
 	(if heuristic
-          ;; conjoin/2 looks for leftwards for more comma-separated conjuncts
-          (let ((edge (conjoin/2 left right heuristic :pass 'short-conjunctions-sweep)))
-            (tr :short-conjoined-edge edge)
-            (return-from create-short-conjunction-edge-if-possible edge))
+          (then
+            (tr :found-conjunction-heuristic heuristic)
+            ;; conjoin/2 looks for leftwards for more comma-separated conjuncts
+            (let ((edge (conjoin/2 left right heuristic :pass 'short-conjunctions-sweep)))
+              (tr :short-conjoined-edge edge)
+              (return-from create-short-conjunction-edge-if-possible edge)))
           (tr :no-heuristics-for left-edge right-edge))))))
 
 
@@ -1194,10 +1220,15 @@
 ;; (trace-traversal-hook) (trace-traversal-hits)
 
 (defun sweep-to-span-parentheses (sentence)
-  ;; Given the sweeps that have preceded this, there will be
-  ;; no edges over the parentheses. (////barring an errant
-  ;; mention in a cfr, as happens for "the" or even ".")
-  ;; So we walk through looking for words
+  "Given the sweeps that have preceded this, there will be
+   no edges over the parentheses. (////barring an errant
+   mention in a cfr, as has happened for 'the' or even '.')
+   So we walk through the sentence looking for 'exposed'
+   words applying the word-traversal-hook to each on in turn.
+   Actions occur when the close of a set of paired punctuation
+   is encountered.  Note that this applies to -every- case of
+   a word with a traversal action: other bracket types, and
+   double or single quotes."
   (declare (special *the-punctuation-period* *trace-sweep*
                     *sentence-terminating-punctuation*))
   (tr :sweep-to-span-parentheses)
@@ -1207,9 +1238,7 @@
         treetop  position-after )
     (declare (special *special-acronym-handling*))
 
-    ;; (push-debug `(,sentence ,position-before ,end-pos))
-    (loop
-      ;; copied from the pattern sweep. 
+    (loop ;; copied from the pattern sweep. 
       (multiple-value-setq (treetop position-after)
         (next-treetop/rightward position-before))
 
@@ -1223,16 +1252,7 @@
           (return))
       
       (word-traversal-hook treetop position-before position-after)
-      ;; Traversal actions are managed by a hash table from the word
-      ;; qua label (i.e. could be applied to edges as well) to a function
-      ;; that takes these same arguments. This is used for bracket pairs
-      ;; such as parentheses, double quotes, etc. Check with a call to
-      ;; (list-hash-table *traversal-routine-table*)
-      ;;    The action is always on the matching close. The open
-      ;; notes its oposition so the close knows what span to operate
-      ;; over. We check for traversal hits before the no-space check
-      ;; because the ns is greedy and moves the position, which can
-      ;; cause the open to be missed.       
+  
 
       (when (position/<= end-pos position-after)
         (return))
@@ -1251,6 +1271,12 @@
    removed from the parser's attention by burying within the prior
    edge.")
 
+(defparameter *store-acronyms* nil
+  "If this flag is up we 'hide' each probable acronym (full-caps word
+   inside parentheses) on the edge to its left.  If it is down (nil)
+   we 'elevate' the acronym as an edge spanning the parens so that
+   it is visible to rules (e.g. acronym-is-alternative-for-name).")
+
 (defvar *pending-acronyms* nil
   "If we have walked over what appears to be an acronym to be
   handled later, this stores the needed information.")
@@ -1263,53 +1289,56 @@
 (defun assess-parenthesized-content (paren-edge
                                      pos-before-open pos-after-open
                                      pos-before-close pos-after-close)
-  ;; Called from span-parentheses after all the handling of
-  ;; the interior has been handled and a (usually) vanilla edge
-  ;; constructed to span the whole expression. 
+  "Called from span-parentheses after all the handling of
+   the interior is finished and a (usually) vanilla edge
+   has been constructed to span the whole expression.
+   What we do is determined by the parameters just above.
+   The paren-edge is the top edge starting at the open.
+   It will have been created by do-paired-punctuation-interior
+   and will span everything between the open and close inclusive."
   (push-debug `(,paren-edge ,pos-before-open ,pos-after-open
                 ,pos-before-close ,pos-after-close))
-  ;; (lsp-break "call to assess-parenthesized-content")
   #| (setq first-edge (nth 0 *) pos-before-open (nth 1 *)
-pos-after-open (nth 2 *) pos-before-close (nth 3 *)
-pos-after-close (nth 4 *)) |#
-  ;; Some of this lookup is recreating observations within
-  ;; do-paired-punctuation-interior but it simpler than figuring out
-  ;; a way to export it.
+       pos-after-open (nth 2 *) pos-before-close (nth 3 *)
+  pos-after-close (nth 4 *)) |#
+  
   (let* ((first-edge (right-treetop-at/edge pos-after-open))
          (one-edge-over-entire-segment?
           (when (edge-p first-edge) ;; e.g. "the underlying mechanism(s)."
             (eq (pos-edge-ends-at first-edge) pos-before-close)))
          (edge-to-left (left-treetop-at/edge pos-before-open)))
     (cond
-     ((and (edge-p first-edge)
-           one-edge-over-entire-segment?
-           (one-word-long? first-edge)
-           (eq (pos-capitalization pos-after-open) :all-caps))
-      #+ignore ;; too loud when not working on these
-      (unless (and edge-to-left (edge-p edge-to-left))
-        (warn "probable acronym w/o edge to its left: ~s~%in ~s"
-              (string-for-edge first-edge) (current-string)))
-      (when (edge-p edge-to-left) ;; otherwise there's nothing to hide under
-        (let* ((ev-after-close (pos-ends-here pos-after-close))
-               (ev-to-get-edges-from (edge-starts-at edge-to-left))
-               (edges-to-extend (all-edges-on ev-to-get-edges-from))
-               (ev-of-edge (edge-ends-at edge-to-left)))
-          
-          ;; There may be more than one edge just before the open,
-          ;; i.e. it's top-node is :multiple-initial-eges. We need to
-          ;; make all of them longer because which of these edges is
-          ;; going to be selected by the chunker can't be determined here.
-          (loop for edge in edges-to-extend
-            ;; Move the edge over the parentheses
-            do (knit-edge-into-position edge ev-after-close)
-               (setf (edge-ends-at edge) ev-after-close))
+      ;; check whether it could be an acronym
+      ((and (edge-p first-edge)
+            one-edge-over-entire-segment?
+            (one-word-long? first-edge)
+            (eq (pos-capitalization pos-after-open) :all-caps))
+       (if *store-acronyms*
+         (when (edge-p edge-to-left) ;; otherwise there's nothing to hide under
+           (let* ((ev-after-close (pos-ends-here pos-after-close))
+                  (ev-to-get-edges-from (edge-starts-at edge-to-left))
+                  (edges-to-extend (all-edges-on ev-to-get-edges-from))
+                  (ev-of-edge (edge-ends-at edge-to-left)))            
+             ;; There may be more than one edge just before the open,
+             ;; i.e. it's top-node is :multiple-initial-eges. We need to
+             ;; make all of them longer because which of these edges is
+             ;; going to be selected by the chunker can't be determined here.
+             (loop for edge in edges-to-extend
+                ;; Move the left-side edge over the parentheses
+                do (knit-edge-into-position edge ev-after-close)
+                  (setf (edge-ends-at edge) ev-after-close))
+             ;; save the information we need to recover it all
+             (push `(,pos-before-open ,paren-edge ,first-edge ,ev-of-edge)
+                   *pending-acronyms*)))
+         
+         (else ;; re-label it
+           (revise-edge-labels
+            paren-edge
+            :category (category-named 'single-capitalized-word-in-parentheses)))))
 
-          ;; save the information we need to recover it all
-          (push `(,pos-before-open ,paren-edge ,first-edge ,ev-of-edge)
-                *pending-acronyms*))))
-     (*hide-parentheses*
-      (lsp-break "stub: finish revision of hide parentheses?")
-      (hide-parenthesis-edge paren-edge edge-to-left)))))
+      (*hide-parentheses*
+       (lsp-break "stub: finish revision of hide parentheses?")
+       (hide-parenthesis-edge paren-edge edge-to-left)))))
 
 (defparameter *show-acronym-conflicts* nil)
 
