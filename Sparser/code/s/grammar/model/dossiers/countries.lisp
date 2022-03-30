@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 199-1995,2011-2020  David D. McDonald  -- all rights reserved
+;;; copyright (c) 199-1995,2011-2021 David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2007-2010 BBNT Solutions LLC. All Rights Reserved
 ;;;
 ;;;     File:  "countries"
 ;;;   Module:  "model;dossiers:"
-;;;  version:  March 2020
+;;;  version:  December 2021
 
 ;; 0.1 (10/12/92 v2.1) introducing new semantics
 ;;     (9/7 v2.3) revived the existing set of cases
@@ -50,7 +50,7 @@
 (define-country "Botswana")
 (define-country "Brazil")
 (define-country "Great Britain"
-    :aliases '("United Kingdom" "UK" "Britain") ;; u.k. and great britain aren't actuallythe same
+    :aliases '("United Kingdom" "UK" "Britain") ;; u.k. and great britain aren't actually the same
     :adjective "British"
     :cities '("London" "Birmingham" "Brighton" "Cardiff"
        "Edinburgh" "Glasgow" "Oxford" "Cambridge" "Leeds"))
@@ -144,7 +144,7 @@
     :cities '("Qom" "Tehran"))
 (define-country "Iraq" :adjective "Iraqi")
 (define-country "Ireland" :adjective "Irish")
-(define-country "Israel"
+(define-country "Israel" :aliases '("the State of Israel" "the state of Israel")
     :adjective '("Israeli" "Jewish") ;; jewish is problematic -- we need a religions section 
     :language "Hebrew"
     :cities '("Jerusalem"))
@@ -188,7 +188,7 @@
                              "Yucatán" "Yucatan" "Zacatecas"))
 (define-country "Moldova")
 (define-country "Monaco")
-(define-country "Mongolia")
+(define-country "Mongolia" :adjective "Mongolian")
 (define-country "Montenegro")
 (define-country "Morocco")
 (define-country "Mozambique")
@@ -218,7 +218,7 @@
 (define-country "Poland")
 (define-country "Portugal" :adjective "Portuguese"
                 :cities '("Lisbon"))
-(define-country "Puerto Rico")
+(define-country "Puerto Rico" :adjective "Puerto Rican") ;; U.S. territory
 (define-country "Qatar")
 (define-country "Romania")
 (define-country "Russia" :adjective "Russian"
@@ -277,7 +277,8 @@
   :adjective '("American")
   :cities '("Washington, D.C."
             "New York" "New York City"
-            "San Francisco" "Miami" "Boston" "Sunnyvale" "Seattle" "Portland" "Newark"
+            "San Francisco" "Miami" "Boston" "Sunnyvale" "Seattle" "Portland"
+            "Newark" "Los Angeles"
             "Minneapolis" "Milwaukee" "Indianapolis" "Denver" "Chicago"
             "Charlottesville" "Atlanta"))
 (define-country "Uruguay")

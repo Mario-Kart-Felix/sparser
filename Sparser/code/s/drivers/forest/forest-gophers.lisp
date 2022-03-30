@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2014-2021 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2014-2022 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "forest-gophers"
 ;;;   Module:  "drivers;forest:"
-;;;  Version:  September 2021
+;;;  Version:  February 2022
 
 ;; Initiated 8/30/14. To hold predicates and other little computations
 ;; done by the forest-level sweeping and island-driving. Also a good
@@ -77,6 +77,7 @@
 (defun set-main-verb (tt)
   (let ((pending-verbs (main-verb (layout))))
     (tr :setting-mvb-to tt)
+    (set-sentence-main-verb tt (bkptr (layout)))
     (setf (main-verb (layout))
           (cons tt pending-verbs))
     (tr :waiting-on-non-verb)
@@ -497,6 +498,10 @@
       (error "Not a VP category: ~a in e~a"
              form (edge-position-in-resource-array edge)))
     (cond
+      ((eq (edge-rule edge) 'subordinate-s-comma-clause)
+       (let ((constituents (edge-constituents edge)))
+         (find-verb (car (last constituents)))))
+
       ((eq (edge-rule edge) 'add-adjunctive-pp)
        (find-verb (edge-left-daughter edge)))
 
@@ -519,8 +524,9 @@
             (eq :single-term (edge-right-daughter edge)))
        edge)
 
-      ((eq :long-span (edge-right-daughter edge))
-       (find-verb (edge-left-daughter edge)))
+      ((and (vp-category? (edge-form edge))
+            (eq :single-term (edge-right-daughter edge)))
+       edge)
 
       ((and (vp-category? (edge-form edge))
             (or (word-p (edge-left-daughter edge))
@@ -528,6 +534,9 @@
                 ;; "the drug up-regulates..."
                 (polyword-p (edge-category (edge-left-daughter edge)))))
        edge)
+
+      ((eq :long-span (edge-right-daughter edge))
+       (find-verb (edge-left-daughter edge)))
 
       ((and (vp-category? (edge-form edge)) ;; vp: "are wooing"
             (vp-category? (edge-form (edge-left-daughter edge)))) ;; "be"

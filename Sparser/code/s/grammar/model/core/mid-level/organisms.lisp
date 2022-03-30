@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER COMMON-LISP) -*-
-;;; Copyright (c) 2021 SIFT LLC. All Rights Reserved
+;;; Copyright (c) 2021-2022 SIFT LLC. All Rights Reserved
 ;;;
 ;;;      File:   "organisms"
 ;;;    Module:   "model;mid-level"
-;;;   version:   September 2021
+;;;   version:   March 2022
 
 ;; Broken out of bio;taxonomy and others 11/10/20
 ;; supplemented with more definitions from bio;new-def:new-organisms 8/2021
@@ -34,24 +34,40 @@
  :realization
    (:common-noun name))
 
+(define-category prokaryote
+  :specializes organism
+  :bindings (uid "NCIT:C14263") 
+  :instantiates self 
+  :lemma (:common-noun ("prokaryote" "prokaryota"))
+  :realization (:common-noun name
+                :adj "prokaryotic"))
+
+(define-category eukaryote
+  :specializes organism
+  :bindings (uid "NCIT:C25796") 
+  :instantiates self 
+  :lemma (:common-noun ("eukaryote" "eukaryota"))
+  :realization (:common-noun name
+                :adj "eukaryotic"))
+
 (define-category plant
-    :specializes organism
-    :bindings (uid "NCIT:C14258") ;; "BTO:0001481"
+  :specializes eukaryote
+  :bindings (uid "NCIT:C14258") ;; "BTO:0001481"
   :instantiates self 
   :lemma (:common-noun "plant")
   :realization (:common-noun name))
 
 (define-category animal
-  :specializes organism
+  :specializes eukaryote
   :instantiates self 
   :lemma (:common-noun "animal")
   :realization (:common-noun name))
-(def-synonym animal (:common-noun "fauna"))
+(def-synonym animal (:noun "fauna"))
 ;; "animal, vegitable, mineral" as they said in grade school
 
 (define-category vertebrate
-    :specializes animal
-    :bindings (uid "NCIT:C14282")
+  :specializes animal
+  :bindings (uid "NCIT:C14282")
   :realization (:noun "vertebrate"))
 
 (define-category fish
@@ -99,8 +115,8 @@
   :realization  (:noun "metazoa" :adj "metazoan"))
 
 (define-category fungus
-    :specializes organism ;; fungi are not animals
-    :bindings (uid "NCIT:C14209") ;; "BTO:0001494"
+ :specializes eukaryote ;; fungi are not animals
+ :bindings (uid "NCIT:C14209") ;; "BTO:0001494"
  :realization (:common-noun ("fungus" :plural ("fungi" "funguses"))))
 
 (define-category microorganism
@@ -260,6 +276,7 @@
 (def-indiv-with-id dog "Weimaraner" "NCIT:C53891" :name "weimaraner")
 (def-indiv-with-id dog "coonhound" "NCIT:C53921" :name "black and tan coonhound") 
 (def-indiv-with-id dog "papillon" "NCIT:C53939" :name "papillon") 
+(def-indiv-with-id dog "beagle" "NCIT:C53897" :name "beagle") 
 
 ;; some other dog breeds that conflict with locations/demonyms are in bio;new-defs:new-organisms
 ;; newfoundland, chihuahua, pyrenees, lab, brittany

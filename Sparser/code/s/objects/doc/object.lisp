@@ -3,7 +3,7 @@
 ;;;
 ;;;     File:  "object"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  June 2021
+;;;  Version:  December 2021
 
 ;; Created 2/6/13 to solve the problem of keeping document/section context.
 ;; [sfriedman:20130206.2038CST] I'm writing this using /objects/chart/edges/object3.lisp as an analog.
@@ -227,10 +227,13 @@
 
 (defmethod print-object ((a article) stream)
   (print-unreadable-object (a stream :type t)
-    (format stream " ~a" (name a))
-    (when (article-date a)
-      (unless (string-equal (article-date a) "date-unknown")
-        (format stream " ~a" (article-date a))))))
+    (with-slots (title name) a
+      (if title
+        (format stream "~a" title)
+        (format stream "~a" (name a)))
+      (when (article-date a)
+        (unless (string-equal (article-date a) "date-unknown")
+          (format stream " ~a" (article-date a)))))))
 
 (define-resource article)
 
@@ -253,6 +256,10 @@
    value is an article object.")
 (defun article () *current-article*)
 
+(defparameter *make-fresh-articles* nil
+  "Forces begin-new-article to instantiate article objects
+   rather than take them from a recycled resourse")
+
 ;;--- Where everything starts on each analysis run
 ;;
 (defun begin-new-article (&key name location date source)
@@ -263,7 +270,10 @@
    do-document-as-stream-of-files -- Responsible for
    kicking off the initialization (creation and linking
    of first instances) of all the other document elements."
-  (let ((obj (allocate-article)))
+  (declare (special *make-fresh-articles*))
+  (let ((obj (if *make-fresh-articles*
+               (make-instance 'article)
+               (allocate-article))))
     (setf (name obj) (or name (known-in-context :name)))
     (setf (article-location obj)
           (or location (known-in-context :location)))

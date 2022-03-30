@@ -3,7 +3,7 @@
 ;;;
 ;;;      File:  "acumen-grammar"
 ;;;    Module:  "init/config/grammars/"
-;;;   version:  July 2021
+;;;   version:  December 2021
 
 ;; created 8/13/21 from a copy of the score grammar configuration.
 
@@ -215,7 +215,8 @@
 ;; (include-grammar-module  *call-signs*)
 ;; (include-grammar-module  *checkpoint-ops*)
 (include-grammar-module  *disease*)
-(include-grammar-module  *biology*)
+;;(include-grammar-module  *biology*)
+(include-grammar-module  *non-academic-biology*)
 
 ;; preliminary version of sublanguage where statistical tests and measures are getting defined - temporarily commented out until it's more functional
 (include-grammar-module  *score-stats*)
@@ -226,6 +227,7 @@
 ;;(include-grammar-module  *generic-military*)
 
 ;; (include-grammar-module *middle-east*)
+(include-grammar-module *academics*)
 ;; (include-grammar-module *Banking*)
 ;; (include-grammar-module *ISR*)
 ;; (include-grammar-module *waypoints*)

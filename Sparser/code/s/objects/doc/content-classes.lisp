@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2019-2020 David D. McDonald -- all rights reserved
+;;; copyright (c) 2019-2022 David D. McDonald -- all rights reserved
 ;;;
 ;;;     File:  "content-classes"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  April 2020
+;;;  Version:  February 2022
 
 #| Created 11/25/19 to separate out container component classes  |#
 
@@ -73,8 +73,9 @@
   ((s-count :initform 0 :accessor sentence-count
     :documentation "How many sentences in the paragraph")
    (total-words :initform 0 :accessor word-count
-    :documentation "How many words in the paragraph")
-   )
+     :documentation "How many words in the paragraph")
+   (wps :initform nil :accessor words-per-second
+     :documentation "A string to report. See compute-words-per-second"))
   (:documentation "A set of easily measured, largely structural
     rather than semantic, properties of a paragraph.
     Populated by collect-text-characteristics after each
@@ -123,14 +124,20 @@
 (defclass accumulate-items ()
   ((items-alist :initform nil :accessor items
     :documentation "Simple list. Items are just pushed onto it
-      making them in reverse cronological order."))
+      making them in reverse cronological order.")
+   (germaine :initform nil :accessor germaine-items
+     :documentation "List of the items that are of particular
+        interest in the current application"))
   (:documentation "Maintains a simple list or alist. Up to the
      reader of the list to sort it into various kinds of things."))
 
 (defclass sentence-text-structure ()
   ((subject :initform nil :accessor sentence-subject
     :documentation "The subject of the sentence if we
-     were able to identify it."))
+     were able to identify it.")
+   (mvb :initform nil :accessor sentence-main-verb
+     :documentation "The main verb of the sentence (main clause?) as
+       identified by sweep/form-dispatch"))
   (:documentation
    "Provides long-term representation of the contents of
     the sentence that will be relevant to later sentences.

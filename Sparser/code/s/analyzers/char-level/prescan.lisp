@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2019-2021 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2019-2022 David D. McDonald  -- all rights reserved
 ;;; 
 ;;;     File:  "prescan"
 ;;;   Module:  "analyzers;char-level:"   ("character level processing")
-;;;  Version:   November 2021
+;;;  Version:  January 2022
 
 ;; Initiated 4/16/19 -- Before doing any analysis, sweep through the input
 ;; text at the character level to normalize newlines (paragraphs), convert
@@ -42,6 +42,11 @@ scan-name-position -> add-terminal-to-chart
         -> next-token
            -> run-token-fsa 
                 (elt *character-buffer-in-use* (incf *index-of-next-character*))))
+
+establish-character-source/file
+  calls open-character-source/file to open the file to create a stream.
+     The stream is set to *open-stream-of-source-characters*
+  There's close-character-source-file that closes it.
 |#
 
 ;;--- flags
@@ -68,7 +73,7 @@ scan-name-position -> add-terminal-to-chart
 ;;--- driver
 
 (defvar *post-hyphen-chars* nil
-  "Collects characters that follow hyphen is that line is uncommented out")
+  "Collects characters that follow hyphen if that line is uncommented out")
 
 
 (defun scan-and-swap-character-buffer (&key (echo nil))
@@ -103,7 +108,19 @@ scan-name-position -> add-terminal-to-chart
                    (incf index-into-source)
                    (else (push-char c)
                          (when echo (write-char #\newline))
-                         (setq pending-newline? t)))))
+                         (setq pending-newline? t))))
+               (truncate-source ()
+                 "Back up to put in a newline, then insert
+                  as ^B for eof and raise the 'we're done' flag"
+                 (when *paragraphs-from-orthography*
+                   (setf (schar sink (1- index-into-sink)) #\newline))
+                 (setf (schar sink index-into-sink) #\^B)
+                 (announce-truncated-source index-into-source)
+                 (setq source-exhausted t))
+               (echo-previous-chars (from-index &optional (count 10))
+                 (let* ((start (- from-index count))
+                        (substring (subseq sink start from-index)))
+                   (print substring))))
 
         (until source-exhausted (swap-in-sink-buffer sink)
           ;; Loop until the 'source-exhausted' flag is non-nil,
@@ -114,8 +131,16 @@ scan-name-position -> add-terminal-to-chart
           
           (case char
             (#\^D ;; :end-of-buffer
-             (push-debug `(,source ,sink))
-             (error "Prescan walked off the end of the buffer"))
+             "If we hit this, the source is longer than the character
+              buffer and we need to truncate it"
+             (truncate-source))
+
+            (#\^A ;; source start
+             (unless (= index-into-source 0)
+               (error "Encountered source-start character (\#^A) at ~
+                       index ~a" index-into-source))
+             (push-char char))
+                        
             (#\-
              (cond ((and (> index-into-source 0)
                          (alphabetic-char? (elt source (1- index-into-source)))
@@ -123,12 +148,6 @@ scan-name-position -> add-terminal-to-chart
                     ;;(pushnew (elt source (1+ index-into-source)) *post-hyphen-chars* :test #'equalp)
                     (incf index-into-source 2))
                    (t (push-char char))))
-                        
-            (#\^A
-             (unless (= index-into-source 0)
-               (error "Encountered source-start character (\#^A) at ~
-                       index ~a" index-into-source))
-             (push-char char))
 
             (#\space ;; remove leading spaces
              (if starting?
@@ -189,8 +208,9 @@ scan-name-position -> add-terminal-to-chart
                  ;; we have to ensure than the buffer ends with a newline character
                  (setf (schar sink index-into-sink) #\newline)
                  (incf index-into-sink)))
-             (setf (schar sink index-into-sink) char)
-             (setq source-exhausted t)) ;; :end-of-source
+             (setf (schar sink index-into-sink) char) ;; :end-of-source
+             ;;(echo-previous-chars index-into-sink)
+             (setq source-exhausted t))
 
             (otherwise
              (setq starting? nil
@@ -242,16 +262,39 @@ scan-name-position -> add-terminal-to-chart
 (defparameter *html-char-encodings*
   '(("mdash" #\-) ;; "--" would be better
     ("ndash" #\-) ;; ditto
+    ("ntilde" #\n) ; small n with tilde
     ("laquo" #\')
     ("rsquo" #\')
-    ("rdquo" #\')
+    ("lsquo" #\') ; &#145;  left single quotation mark
     ("ldquo" #\")
     ("rdquo" #\")
+    ("quot"  #\")
+    ("amp"   #\&)
+    ("hellip" #\-) ; actually horizontal elipsis: &#8230  U_02026
+    ("mp" #\+) ; actually &#8723;  MinusPlus
+    ("iexcl" #\!) ; inverted exclamation mark
+    ("uacute" #\`) ; &#180;  acute accent
+    ("oacute" #\o) ; small o with acute
+    ("iacute" #\i) ; small i with acute
+    ("uuml" #\u) ; &#220  'u' with a double-dot over it
     )
   "See, e.g., dev.w3.org/html5/html-author/charref for a bigger list
    or https://www.rapidtables.com/web/html/html-codes.html for the
    full list.")
 
+;; #3840 -- accidental capture
+;; "Rodolfo Rueda, director of Thompson &Knight;  and specialist in the energy sector"
+
+;; Symbol Name:	Right Single Quotation Mark
+;; Html Entity:	&rsquo;
+;; Hex Code:	&#x2019;
+;; Decimal Code: &#8217;
+
+;; "#x201C" -> #\LEFT_DOUBLE_QUOTATION_MARK
+;; "#x201D" -> #\RIGHT_DOUBLE_QUOTATION_MARK
+;; "#xA0" -> #\NO-BREAK_SPACE
+;; #x2013" -> #\EN_DASH
+;; "#x2026" -> #\HORIZONTAL_ELLIPSIS
 
 (defun replace-html-char-encoding (source index)
   "The index is right on the ampersand character. We search for 
@@ -266,26 +309,37 @@ scan-name-position -> add-terminal-to-chart
              (not (string= encoding "")) ;; it's not listed or it's bad syntax
              (< (length encoding) 7)) ;;/// lookup the spec
       (let ((replacement (cadr (assoc encoding *html-char-encodings* :test #'string=))))
-        (unless replacement
-          (if (eql (aref encoding 0) #\#)
-            (let* ((code-string (subseq encoding 1))
-                   (code (when code-string (read-from-string code-string))))
-              (setq replacement (code-char code)))
-            (else
-              (format t "~&~%~%==== No encoding recorded for ~s ====~%~%~%"
-                      encoding)
-              (setq replacement #\space))))
-        (values replacement
-                (1+ index-of-semicolon)))
+        (cond
+          (replacement
+           (values replacement
+                   (1+ index-of-semicolon)))
+          ((eql (aref encoding 0) #\space) ; " Spa" in "Coqui Coqui Residence & Spa"
+           (values #\&
+                   (1+ index)))
+          (t ;; compute the replacement
+           (cond
+             ((and (eql (aref encoding 0) #\#)
+                   (eql (aref encoding 1) #\x)) ; "#x2019"
+              (let ((decimal (read-from-string encoding)))
+                (setq replacement (code-char decimal)))) ; #\RIGHT_SINGLE_QUOTATION_MARK
+
+             ((eql (aref encoding 0) #\#)
+              (let* ((code-string (subseq encoding 1))
+                     (code (when code-string (read-from-string code-string))))
+                (setq replacement (code-char code))))
+             (t
+              (format t "~&~%~%==== No HTML encoding recorded for ~s ====~%~%~%" encoding)
+              (setq replacement #\space)))
+           (values replacement
+                   (1+ index-of-semicolon)))))
       (else
-        (values #\& (1+ index))))))
+        (values #\&
+                (1+ index))))))
+
 
 (defun embedded-html-newline (index source)
   "There is an angle bracket at the index. Search ahead to see whether
    it's the start of the html pattern for a newline"
-  ;; 
-  #+ignore(push-debug `(,index
-                  ,(subseq source 0 (position #\^B source))))
   (let* ((characters (loop for i from index to (+ 4 index) collect (aref source i)))
          (string (apply #'string-append characters)))
     (search "<nl/>" string)))

@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2019-2021 David D. McDonald -- all rights reserved
+;;; copyright (c) 2019-2022 David D. McDonald -- all rights reserved
 ;;;
 ;;;     File:  "content-actions"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  August 2021
+;;;  Version:  January 2022
 
 #| Created 8/27/19 to move general action out of content-methods.lisp
 and make that file easier to understand. |#
@@ -332,22 +332,31 @@ and make that file easier to understand. |#
 ;;; printing document statistics
 ;;;------------------------------
 
-(defvar *print-bio-terms* t
+(defparameter *print-bio-terms* t
   "Rebind to nil to block including the bio-terms in the
    summary-document-stats")
+
+(defparameter *minimal-reporting* nil
+  "If this is up turn off all the reporting that's not needed
+   to populate the data in the article.")
+
 
 (defgeneric summary-document-stats (document-element &optional stream)
   (:documentation "Principally for information while exploring.
    This method is called when you specify :stats in a json article function
    such as run-json-article-from-handle")
   (:method ((a article) &optional stream)
+    (declare (special *minimal-reporting*))
     (unless stream (setq stream *standard-output*))
-    (format stream "~&~%For ~a  (~a words)"
-            a (insert-commas-into-number-string (token-count a)))
+    (format stream "~&~%For ~a" a)
     (report-time-to-read-article a stream)
-    (show-parse-performance a stream)
-    (when *print-bio-terms*
-      (display-top-bio-terms a stream))))
+    (unless *minimal-reporting*
+      (show-parse-performance a stream)
+      (when *print-bio-terms*
+        (display-top-bio-terms a stream))
+      (when *acumen* ; bio-terms printing nil in neo-fire-setting
+        (show-noted-categories a)
+        (show-motif-term-context a)))))
 
 
 (defun show-parse-performance (doc-element &optional (stream *standard-output*))
@@ -366,8 +375,7 @@ and make that file easier to understand. |#
           ((typep doc-element 'paragraph)
            (when *show-article-progress*
              (format  stream "~&~a, ~a, ~a~%" great medium horrible)))
-          (*readout-segments-inline-with-text*
-           ;; proxy for with-total-quiet
+          (*readout-segments-inline-with-text* ;; proxy for with-total-quiet
            (format stream "~&~%")))))))
 
 
@@ -390,15 +398,18 @@ and make that file easier to understand. |#
   (format stream "~&~a: ~a" (name group) (group-count group)))
 
 
-(defun show-motif-term-context (&optional (stream *standard-output*))
-  (declare (special *germaine-spotter-group-instances* *abbreviated*))
-  (unless *germaine-spotter-group-instances*
-    (format stream  "~&No motif triggers in article~%"))  
-  (when *germaine-spotter-group-instances*
-    (if *abbreviated*
-      (show-abbreviated-motif-edge-contexts stream)
-      (loop for group in *germaine-spotter-group-instances*
-         do (show-motif-edge-contexts group stream)))))
+(defun show-motif-term-context (article &optional (stream *standard-output*))
+  "Go through the note-group-instance objects that were picked out for
+   this application and print out their contents."
+  (declare (special #| *germaine-spotter-group-instances*|# *abbreviated*))
+  (let ((group-instances (germaine-items (contents article))))
+    (unless group-instances
+      (format stream  "~&No motif triggers in article~%"))
+    (when group-instances
+      (if *abbreviated*
+        (show-abbreviated-motif-edge-contexts article group-instances stream)
+        (loop for group in group-instances
+           do (show-motif-edge-contexts group stream))))))
 
 (defgeneric show-motif-edge-contexts (group &optional stream)
   (:method ((group note-group-instance) &optional stream)
@@ -408,24 +419,39 @@ and make that file easier to understand. |#
       (loop for note-entry in entries
          do (show-edge-records note-entry)))))
 
-(defgeneric show-abbreviated-motif-edge-contexts (&optional stream)
+(defgeneric show-abbreviated-motif-edge-contexts (article group-instances &optional stream)
   (:documentation "Gets data for the whole set of germaine groups
     and reports it compactly.")
-  (:method (&optional stream)
+  (:method ((article article) (groups list) &optional stream)
+    (declare (special *motif-configurations-stream*))
     (unless stream (setq stream *standard-output*))
     (multiple-value-bind (configurations
                           record-count categorized-count
                           group-count uncategoried-records)
-        (edge-record-summary)
-      (format stream "~&Functional categorizations for ~a out of ~a instances~
-                      ~%   ~{~a  ~}"
-              categorized-count
-              record-count
-              configurations)
+        (edge-record-summary groups)
+      (if (null categorized-count)
+        (format stream "~&No Functional categorization for any of ~a instances~%"
+                record-count)
+        (format stream "~&Functional categorizations for ~a out of ~a instances~%"
+                categorized-count  record-count))
+      (when configurations
+        (let ((index 0))
+          (loop for config in configurations
+             do (progn
+                  (format stream "  ~a" config)
+                  (when (= 4 (incf index)) (terpri stream) (setq index 0))))))
+
       (when uncategoried-records
-        (format stream "~&Uncategorized instances:")
-        (loop for record in uncategoried-records
-             do (report-edge-record record stream))))))
+        (if *motif-configurations-stream*
+          (let ((stream *motif-configurations-stream*))
+            (format stream "~&~%Article ~a~%Uncategorized instances:"
+                    (name article))
+            (loop for record in uncategoried-records
+               do (report-edge-record record stream)))
+          (else
+            (format stream "~&Uncategorized instances:")
+            (loop for record in uncategoried-records
+               do (report-edge-record record stream))))))))
 
 
 

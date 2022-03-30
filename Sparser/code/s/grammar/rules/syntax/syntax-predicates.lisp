@@ -1,9 +1,9 @@
  ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 2016-2021 David D. McDonald  -- all rights reserved
+;;; copyright (c) 2016-2022 David D. McDonald  -- all rights reserved
 ;;;
 ;;;     File:  "syntax-predicates"
 ;;;   Module:  "grammar;rules:syntax:"
-;;;  Version:  May 2021
+;;;  Version:  March 2022
 
 ;; Simple functions lifted from syntax-functions 8/30/16
 
@@ -57,6 +57,37 @@
                          (is-in-p category::which
                                   (semtree (edge-referent e)))))))))
 
+
+;;--- locative objects:  put <block> <location>
+
+(defgeneric verb-takes-locative? (verb)
+  (:documentation "Does this verb subcategorize for a location?
+    If fed a sentence argument will return nil if the main verb
+    isn't set yet.")
+  (:method ((s sentence))
+    (let ((mvb-edge (get-sentence-main-verb s)))
+      (when mvb-edge
+        (verb-takes-locative? mvb-edge))))
+  (:method ((mvb-edge edge))
+    (let ((i (edge-referent mvb-edge)))
+      (itypep i 'move-something-verb)))
+  (:method ((ignore null)) ; caller couldn't identify the sentence
+    nil))
+
+(defgeneric location-in-locative-context? (i)
+  (:documentation "Is this individual a location (or been construed as
+    one) and are we encountering it in a context that subcategorizes
+    for locatives.")
+  (:method ((e edge))
+    (location-in-locative-context? (edge-referent e)))
+  (:method ((i individual))
+    (when (itypep i 'location)
+      (verb-takes-locative? (sentence)))))
+
+
+
+
+;;//// general utility -- move
 (defun is-in-p (item tree &key test)
   (if (null test)
       (cond ((and (consp tree) (listp (cdr tree))) ;; not a dotted pair
@@ -390,7 +421,8 @@
                                   (second (edge-constituents prep-edge)))
                                  ((edge-p (edge-right-daughter prep-edge))
                                   (edge-right-daughter prep-edge))
-                                 (t nil)))))    
+                                 (t nil)))))
+    (push-debug `(,prep-edge ,left-daughter ,right-daughter))
     (flet ((prep-edge? (edge)
              (memq (form-cat-name edge) *prep-forms*)))
       (cond
@@ -400,11 +432,16 @@
          ;; strange case "qRT-PCR- Smyd3 -For 5′ TGCGCACCATGGAGCCGTAC"
          ;; probably not a preposition, but avoid this error
          right-daughter)
+        
         ((word-p left-daughter)
          left-daughter)
 
         ((edge-p left-daughter) ;; formerly left-daughter = prep-word
          (cond
+           ((eq (form-cat-name left-daughter) 'subordinate-conjunction) ; "before"
+            ;; "before (Christopher Columbus') discovery of Puerto Rico"
+            (edge-left-daughter left-daughter))
+
            ((polyword-p (edge-rule left-daughter))
             (edge-rule left-daughter)) ;; return the pw
 

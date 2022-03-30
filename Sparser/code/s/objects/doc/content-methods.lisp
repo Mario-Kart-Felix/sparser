@@ -1,9 +1,9 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:(SPARSER LISP) -*-
-;;; copyright (c) 2013-2021 David D. McDonald -- all rights reserved
+;;; copyright (c) 2013-2022 David D. McDonald -- all rights reserved
 ;;;
 ;;;     File:  "content-methods"
 ;;;   Module:  "objects;doc;"
-;;;  Version:  November 2021
+;;;  Version:  February 2022
 
 ;; Created 5/12/15 to hold the container mixings and such that need
 ;; to have the document model elements already defined so they can
@@ -337,14 +337,30 @@
     This is called during the paragraph after-action method
     to merge sentence-level notes to the paragraph level.")
   (:method ((p paragraph))
+    (declare (special *some-edges-released*))
     (let* ((sentences (sentences-in-paragraph p))
            (contents (loop for s in sentences collect (contents s)))
            (alists (loop for c in contents
                       when (items c) collect (items c))))       
       (when alists
+        ;;(push-debug `(,alists)) (break "alists: ~a" alists)
+        (unless *some-edges-released*
+          (add-chains-to-records alists))
         (let ((merged-alist (merge-items-alists alists)))
           (setf (items (contents p)) merged-alist)
           p)))))
+
+(defun add-chains-to-records (paragraph-alist)
+  "The alist is a list of (<symbol-naming-category <its-note-entry>).
+   We loop over the entries, go down to their edge records, and add
+   chain information to them."
+  (loop for sentence-alist in paragraph-alist
+     do (loop for pair in sentence-alist
+           as category-name = (first pair)
+           as note-entry = (second pair)
+           as edge-records = (text-strings note-entry)
+           do (loop for record in edge-records
+                 do (form-chain-and-add-to-record record)))))
 
 (defgeneric aggregate-noted-items (doc-element)
   (:documentation "Called as part the section level after-actions and
@@ -429,6 +445,14 @@
     (let ((group-instances (items (contents a))))
       (loop for note-entry in group-instances
          append (note-instances note-entry)))))
+
+(defgeneric get-note-instance (name)
+  (:documentation "Return the note-instance with this name from
+   the current article")
+  (:method ((name symbol))  
+    (let* ((a (article))
+           (note-instances (get-noted-groups a)))
+      (find name note-instances :key #'name))))
 
 (defgeneric number-of-words-note-spans (notable)
   (:documentation "How many words does a note object cover?
@@ -637,6 +661,18 @@ using data collected by identify-relations |#
 
 (defmethod get-sentence-subject ((ignore null))
   nil)
+
+(defgeneric set-sentence-main-verb (edge sentence)
+  (:documentation "record the presumed main verb. Records the
+    edge //change to its referent?")
+  (:method ((e edge) (s sentence))
+    (setf (sentence-main-verb (contents s)) e)))
+
+(defgeneric get-sentence-main-verb (sentence)
+  (:method ((s sentence))
+    (sentence-main-verb (contents s)))
+  (:method ((ignore null)) ; cann't identify the sentence
+    nil))
 
 
 ;;;--------------------------

@@ -1,10 +1,10 @@
 ;;; -*- Mode:LISP; Syntax:Common-Lisp; Package:SPARSER -*-
-;;; copyright (c) 1991-1996,2013,2016-2021  David D. McDonald  -- all rights reserved
+;;; copyright (c) 1991-1996,2013,2016-2022  David D. McDonald  -- all rights reserved
 ;;; extensions copyright (c) 2009 BBNT Solutions LLC. All Rights Reserved
 ;;; 
 ;;;     File:  "articles"
 ;;;   Module:  "drivers;inits:"
-;;;  Version:  June 2021
+;;;  Version:  January 2022
 
 ;; 1.1  (3/28/91 v1.8.1)  Added Clear-individuals, and improved the
 ;;      conditionalization according to the load-time switches
@@ -52,8 +52,9 @@
 
 (defun per-article-initializations ()
   "Invoked from analysis-core before any analysis starts provided
-   that the *initialize-with-each-unit-of-analysis* flag is up
-"
+   that the *initialize-with-each-unit-of-analysis* flag is up.
+   This will clear/reinitialize every article-specific property,
+   except as overridden by other parameters consulted here."
   (declare (special *saved-toplevel-parsing-protocol*))
 
   (when *saved-toplevel-parsing-protocol*
@@ -77,10 +78,12 @@
       (clear-special-text-display-window))
     
     (when *recognize-sections-within-articles*
+      (when *make-fresh-articles*
+        (strip-unnecessary-article-parts (article))) ; the previous one
       (initialize-document-element-resources)
       (begin-new-article))
     
-    (when *context-variables* ; read by article initialization
+    (when *context-variables* ; read in begin-new-article
       (clear-context-variables)
       (initialize-context-variables))
    
@@ -92,12 +95,6 @@
         ;; In this case there is a special clean-out
         ;; call at article start.
         (clean-out-history-and-temp-objects))))
-
-    ;; These flags are grammar modules
-#|  (when *paragraph-detection*
-      (initialize-paragraph-state))
-    (when *recognize-sections-within-articles*
-      (initialize-section-state)))  |#
 
   (run-real-per-article-initializations))
 
@@ -114,7 +111,7 @@ set in. This initialization manages them.|#
 
 (defun sentence-level-initializations ()
   "Called in scan-terminals-loop before it starts to
-   scan terminals."
+   scan any terminals."
   (declare (special *localization-interesting-heads-in-sentence*))
   (when *localization-interesting-heads-in-sentence*
     (reset-localization-interesting-heads-in-sentence))
@@ -132,8 +129,7 @@ set in. This initialization manages them.|#
   ;; what to reap
   (reclaim-temporary-individuals)
   (zero-bound-in-fields)
-  (clear-note-tables)
-  (clear-spotting-tables)
+  (clean-out-note-data)
   (initialize-discourse-history))
 
 

@@ -53,8 +53,8 @@
 
 (defgeneric apply-context-predicates (article)
   (:documentation "Called as part of the after-actions method on articles.
- We identify what group instances we should work on, the we iterate through
- the edges in their entries and create and store their used-in chains.
+ We identify what group instances we should work on, then we iterate through
+ the edges in their entries to create and store their used-in chains.
  That's the raw material we apply context predicates to, or explore as part
  of developing the predicates.")
   (:method ((a article))
@@ -62,6 +62,7 @@
     (when *compute-items-contexts*
       (let* ((items-field (items (contents a)))
              (group-instances (collect-germane-group-instances items-field)))
+        (setf (germaine-items (contents a)) group-instances)
         (loop for group in group-instances
            do (loop for entry in (note-instances group)
                  do (loop for record in (text-strings entry)
@@ -75,7 +76,7 @@
 
 (defun collect-germane-group-instances (list-of-group-instances)
   "We want the motif-spotting group instances. Right now we only want
- word spotters since those are where the motifs have been stored."
+   word spotters since those are where the motifs have been stored."
   (declare (special *motif-groups*))
   (let ((groups
          (loop for group in list-of-group-instances
@@ -90,11 +91,6 @@
 ;;;--------
 ;;; driver
 ;;;--------
-
-(defparameter *debug-context-predicates* nil
-  "Incorporated into predicates to flag cases that go beyond what they
- anticipated that we want to look into. If this flag is up we'll go into
- a break, otherwise the predicate will return nil")
 
 (defgeneric analyze-trigger-contexts (key)
   (:documentation "Called from apply-context-predicates.
@@ -132,5 +128,25 @@
     (when (polyword-p (edge-category edge)) ;; "tir na nog"
       (setq edge (edge-used-in edge)))
     (let ((record (get-edge-record edge))
-          (chain (get-chain edge)))
+          (chain (get-chain edge))
+          (*configuration-break* t))
+      (declare (special *configuration-break*))
       (identify-edge-configuration record edge chain))))
+
+
+(defvar *configuration-break* nil
+  "If not nil the config-break gate will fire")
+
+(defun config-break ()
+  "The breaks are seeded in the code. We really only want them
+   while we're working on these -not- while they're being computed,
+   which is when using edge-config"
+  (declare (special *configuration-break*))
+  *configuration-break*)
+  
+;; Long-term option -- tailor a macro
+(defparameter *debug-context-predicates* nil
+  "Incorporated into predicates to flag cases that go beyond what they
+ anticipated that we want to look into. If this flag is up we'll go into
+ a warn-or-error or a break, otherwise the predicate will just return nil")
+
